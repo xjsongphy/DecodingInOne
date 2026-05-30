@@ -1,0 +1,28 @@
+# Ising-style model training experiment config (training only)
+
+distance: 5
+rounds: 5
+basis: X
+
+train_shots: 80000
+val_shots: 20000
+
+# Stim noise params
+p_after_clifford: 0.001
+p_before_round_data: 0.001
+p_before_measure_flip: 0.001
+p_after_reset_flip: 0.001
+
+# model
+hidden_dims: [256, 128]
+dropout: 0.1
+
+# optimization
+batch_size: 1024
+epochs: 10
+lr: 0.001
+weight_decay: 0.00001
+
+device: auto
+seed: 0
+out_dir: experiments/ising/train_output

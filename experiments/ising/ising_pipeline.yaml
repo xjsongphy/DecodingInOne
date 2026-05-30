@@ -1,0 +1,22 @@
+# Ising-style full pipeline config (minimal extracted version)
+distance: 5
+rounds: 5
+basis: X
+shots: 20000
+
+# Noise parameters mapped to stim.Circuit.generated
+after_clifford_depolarization: 0.001
+before_round_data_depolarization: 0.001
+before_measure_flip_probability: 0.001
+after_reset_flip_probability: 0.001
+
+# Keys consumed by script
+p_after_clifford: 0.001
+p_before_round_data: 0.001
+p_before_measure_flip: 0.001
+p_after_reset_flip: 0.001
+
+seed: 0
+latency_samples: 5000
+out_dir: experiments/ising/output
+save_circuit: true
