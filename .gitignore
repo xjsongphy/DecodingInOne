@@ -40,11 +40,12 @@ htmlcov/
 # Data
 *.bin
 *.npz
-data/
+/data/
 outputs/
 
 # Logs
 *.log
 
 # Working Files
-TODO.mddocs/
+TODO.md
+docs/
