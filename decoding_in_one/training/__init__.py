@@ -4,6 +4,7 @@
 """
 
 from decoding_in_one.training.config import OptimConfig
-from decoding_in_one.training.base import Trainer
+# 从 trainer.py 导入通用 Trainer
+from decoding_in_one.training.trainer import Trainer
 
 __all__ = ["OptimConfig", "Trainer"]
