@@ -52,10 +52,23 @@ class SurfaceCode(QuantumCode):
         self._x_connections = {}
         self._z_connections = {}
 
-        # 简化实现：每个稳定子连接周围 4 个数据比特
-        # 完整实现需要参考 Ising 的 plaquette 逻辑
-        # 这里先提供一个基本框架
-        pass
+        # 为每个 X 型稳定子分配连接的数据比特（简化版：按顺序分配4个）
+        for i, xcheck in enumerate(self._xcheck_qubits):
+            start_idx = i * 4
+            connections = []
+            for j in range(4):
+                data_idx = (start_idx + j) % len(self._data_qubits)
+                connections.append(data_idx)
+            self._x_connections[xcheck] = connections
+
+        # 为每个 Z 型稳定子分配连接的数据比特（简化版）
+        for i, zcheck in enumerate(self._zcheck_qubits):
+            start_idx = (i * 4 + 2) % len(self._data_qubits)
+            connections = []
+            for j in range(4):
+                data_idx = (start_idx + j) % len(self._data_qubits)
+                connections.append(data_idx)
+            self._z_connections[zcheck] = connections
 
     def get_n_physical(self) -> int:
         return len(self._data_qubits)
