@@ -1,5 +1,6 @@
 # decoding_in_one/codes/base.py
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List, Dict, Tuple
 
 class PauliString:
@@ -12,6 +13,14 @@ class PauliString:
         if not all(c in 'XYZI' for c in operators):
             raise ValueError("Pauli operators must be X, Y, Z, or I")
         self.operators = operators
+
+
+@dataclass(frozen=True)
+class Stabilizer:
+    """稳定子描述。"""
+    check_qubit: int
+    stabilizer_type: str
+    data_qubits: Tuple[int, ...]
 
 class QuantumCode(ABC):
     """量子纠错码抽象基类"""
@@ -39,4 +48,19 @@ class QuantumCode(ABC):
     @abstractmethod
     def get_qubit_topology(self) -> Dict[int, Tuple[int, int]]:
         """返回比特到 2D 坐标的映射"""
+        pass
+
+    @abstractmethod
+    def get_data_qubits(self) -> List[int]:
+        """返回数据比特 ID 列表。"""
+        pass
+
+    @abstractmethod
+    def get_check_qubits(self, stabilizer_type: str) -> List[int]:
+        """返回给定类型稳定子测量比特 ID 列表（'X' 或 'Z'）。"""
+        pass
+
+    @abstractmethod
+    def get_stabilizer_supports(self, stabilizer_type: str) -> Dict[int, Tuple[int, ...]]:
+        """返回稳定子到其支撑数据比特的映射。"""
         pass

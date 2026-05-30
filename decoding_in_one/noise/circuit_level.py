@@ -8,6 +8,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, List
 from decoding_in_one.noise.base import NoiseModel
+from decoding_in_one.utils.types import CircuitArtifact
 
 # CNOT 错误类型（15 个，排除 II）
 CNOT_ERROR_TYPES = [
@@ -64,7 +65,7 @@ class CircuitLevelNoise(NoiseModel):
             key = f'p_cnot_{error_type}'
             setattr(self, key, kwargs.get(key, 0.0))
 
-    def apply_to_circuit(self, circuit: str) -> str:
+    def apply_to_circuit(self, circuit: str | CircuitArtifact) -> str | CircuitArtifact:
         """
         将噪声应用到 Stim 电路
 
@@ -74,6 +75,11 @@ class CircuitLevelNoise(NoiseModel):
         # 简化版：在电路开头添加噪声说明
         header = f"# Circuit-level noise (25p model)\n"
         header += f"# p_prep={self.p_prep_X}, p_idle_cnot={self.p_idle_cnot_X}\n"
+        if isinstance(circuit, CircuitArtifact):
+            circuit.stim_circuit = header + circuit.stim_circuit
+            circuit.metadata["noise_model"] = "circuit_level_25p"
+            circuit.metadata["noise_params"] = self.get_parameters()
+            return circuit
         return header + circuit
 
     def get_parameters(self) -> Dict[str, float]:

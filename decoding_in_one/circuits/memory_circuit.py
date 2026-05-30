@@ -5,6 +5,7 @@
 """
 
 from decoding_in_one.circuits.base import CircuitBuilder
+from decoding_in_one.utils.types import CircuitArtifact, CircuitSpec, CodeSpec
 
 class MemoryCircuit(CircuitBuilder):
     """
@@ -32,23 +33,22 @@ class MemoryCircuit(CircuitBuilder):
         """
         # 获取该稳定子连接的数据比特
         if stabilizer_type == 'X':
-            # 使用实际的稳定子比特 ID
-            xcheck_qubit = code._xcheck_qubits[stabilizer_idx]
-            connections = code._x_connections.get(xcheck_qubit, [])
+            check_qubit = code.get_check_qubits('X')[stabilizer_idx]
+            connections = code.get_stabilizer_supports('X').get(check_qubit, [])
         else:
-            zcheck_qubit = code._zcheck_qubits[stabilizer_idx]
-            connections = code._z_connections.get(zcheck_qubit, [])
+            check_qubit = code.get_check_qubits('Z')[stabilizer_idx]
+            connections = code.get_stabilizer_supports('Z').get(check_qubit, [])
 
         circuit = f"# {stabilizer_type}-type stabilizer {stabilizer_idx}\n"
 
         # 对每个连接的数据比特执行 CNOT
         for data_qubit in connections:
             if stabilizer_type == 'Z':
-                control = stabilizer_idx + len(code._data_qubits)
+                control = check_qubit
                 target = data_qubit
             else:
                 control = data_qubit
-                target = stabilizer_idx + len(code._data_qubits)
+                target = check_qubit
 
             circuit += f"CX {control} {target}\n"
 
@@ -71,29 +71,54 @@ class MemoryCircuit(CircuitBuilder):
         Returns:
             Stim 电路字符串
         """
+        artifact = self.build_memory_artifact(
+            code=code,
+            spec=CircuitSpec(n_rounds=n_rounds, measurement_basis=measurement_basis),
+        )
+        return artifact.stim_circuit
+
+    def build_memory_artifact(
+        self,
+        code,
+        spec: CircuitSpec
+    ) -> CircuitArtifact:
+        """构建结构化电路对象。"""
         circuit = f"# Surface Code Memory Circuit\n"
-        circuit += f"# Distance: {code.distance}, Rounds: {n_rounds}\n\n"
+        circuit += f"# Distance: {code.distance}, Rounds: {spec.n_rounds}\n\n"
 
         # 重复测量轮
-        circuit += f"REPEAT {n_rounds} {{\n"
+        circuit += f"REPEAT {spec.n_rounds} {{\n"
 
         # X 型稳定子测量
-        for i in range(len(code._xcheck_qubits)):
+        for i in range(len(code.get_check_qubits('X'))):
             circuit += self.build_stabilizer_measurement(code, 'X', i)
 
         # Z 型稳定子测量
-        for i in range(len(code._zcheck_qubits)):
+        for i in range(len(code.get_check_qubits('Z'))):
             circuit += self.build_stabilizer_measurement(code, 'Z', i)
 
         circuit += "}\n"
 
         # 最终数据比特测量
         circuit += "# Final data qubit measurements\n"
-        for q in code._data_qubits:
+        for q in code.get_data_qubits():
             circuit += f"M {q}\n"
 
-        # 应用噪声
+        artifact = CircuitArtifact(
+            stim_circuit=circuit,
+            code=CodeSpec(
+                code_family=code.__class__.__name__,
+                distance=code.distance,
+                rotation=getattr(code, "rotation", "XV"),
+                n_physical=code.get_n_physical(),
+                n_logical=code.get_n_logical(),
+            ),
+            spec=spec,
+            metadata={},
+        )
         if self.noise:
-            circuit = self.noise.apply_to_circuit(circuit)
-
-        return circuit
+            noisy = self.noise.apply_to_circuit(artifact)
+            if isinstance(noisy, CircuitArtifact):
+                return noisy
+            artifact.stim_circuit = noisy
+        return artifact

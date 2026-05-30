@@ -1,6 +1,7 @@
 # decoding_in_one/circuits/base.py
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
+from decoding_in_one.utils.types import CircuitArtifact, CircuitSpec
 
 if TYPE_CHECKING:
     from decoding_in_one.codes import QuantumCode
@@ -46,4 +47,13 @@ class CircuitBuilder(ABC):
         Returns:
             完整的 Stim 电路字符串
         """
+        pass
+
+    @abstractmethod
+    def build_memory_artifact(
+        self,
+        code: 'QuantumCode',
+        spec: CircuitSpec
+    ) -> CircuitArtifact:
+        """构建结构化电路对象。"""
         pass
