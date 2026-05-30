@@ -1,0 +1,153 @@
+# Circuit-level noise (25p model)
+# p_prep=0.002, p_idle_cnot=0.001
+# Surface Code Memory Circuit
+# Distance: 5, Rounds: 5
+
+REPEAT 5 {
+# X-type stabilizer 0
+CX 0 25
+CX 1 25
+CX 2 25
+CX 3 25
+# X-type stabilizer 1
+CX 4 26
+CX 5 26
+CX 6 26
+CX 7 26
+# X-type stabilizer 2
+CX 8 27
+CX 9 27
+CX 10 27
+CX 11 27
+# X-type stabilizer 3
+CX 12 28
+CX 13 28
+CX 14 28
+CX 15 28
+# X-type stabilizer 4
+CX 16 29
+CX 17 29
+CX 18 29
+CX 19 29
+# X-type stabilizer 5
+CX 20 30
+CX 21 30
+CX 22 30
+CX 23 30
+# X-type stabilizer 6
+CX 24 31
+CX 0 31
+CX 1 31
+CX 2 31
+# X-type stabilizer 7
+CX 3 32
+CX 4 32
+CX 5 32
+CX 6 32
+# X-type stabilizer 8
+CX 7 33
+CX 8 33
+CX 9 33
+CX 10 33
+# X-type stabilizer 9
+CX 11 34
+CX 12 34
+CX 13 34
+CX 14 34
+# X-type stabilizer 10
+CX 15 35
+CX 16 35
+CX 17 35
+CX 18 35
+# X-type stabilizer 11
+CX 19 36
+CX 20 36
+CX 21 36
+CX 22 36
+# Z-type stabilizer 0
+CX 25 2
+CX 25 3
+CX 25 4
+CX 25 5
+# Z-type stabilizer 1
+CX 26 6
+CX 26 7
+CX 26 8
+CX 26 9
+# Z-type stabilizer 2
+CX 27 10
+CX 27 11
+CX 27 12
+CX 27 13
+# Z-type stabilizer 3
+CX 28 14
+CX 28 15
+CX 28 16
+CX 28 17
+# Z-type stabilizer 4
+CX 29 18
+CX 29 19
+CX 29 20
+CX 29 21
+# Z-type stabilizer 5
+CX 30 22
+CX 30 23
+CX 30 24
+CX 30 0
+# Z-type stabilizer 6
+CX 31 1
+CX 31 2
+CX 31 3
+CX 31 4
+# Z-type stabilizer 7
+CX 32 5
+CX 32 6
+CX 32 7
+CX 32 8
+# Z-type stabilizer 8
+CX 33 9
+CX 33 10
+CX 33 11
+CX 33 12
+# Z-type stabilizer 9
+CX 34 13
+CX 34 14
+CX 34 15
+CX 34 16
+# Z-type stabilizer 10
+CX 35 17
+CX 35 18
+CX 35 19
+CX 35 20
+# Z-type stabilizer 11
+CX 36 21
+CX 36 22
+CX 36 23
+CX 36 24
+}
+# Final data qubit measurements
+M 0
+M 1
+M 2
+M 3
+M 4
+M 5
+M 6
+M 7
+M 8
+M 9
+M 10
+M 11
+M 12
+M 13
+M 14
+M 15
+M 16
+M 17
+M 18
+M 19
+M 20
+M 21
+M 22
+M 23
+M 24
