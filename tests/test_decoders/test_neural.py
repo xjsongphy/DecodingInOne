@@ -6,11 +6,11 @@ from pathlib import Path
 import tempfile
 
 from decoding_in_one.decoders.neural import NeuralDecoder
-from decoding_in_one.models import Conv3DNeuralDecoder, Conv3DModelConfig
+from decoding_in_one.models import SurfaceCodeConv3DDecoder, Conv3DModelConfig
 
 def test_neural_decoder_initialization():
     """NeuralDecoder 应该正确初始化"""
-    model = Conv3DNeuralDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
+    model = SurfaceCodeConv3DDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
 
     # 创建临时 checkpoint
     with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
@@ -33,7 +33,7 @@ def test_neural_decoder_initialization():
 
 def test_neural_decoder_decode():
     """NeuralDecoder 应该正确解码"""
-    model = Conv3DNeuralDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
+    model = SurfaceCodeConv3DDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
 
     with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
         checkpoint_path = f.name
@@ -60,7 +60,7 @@ def test_neural_decoder_decode():
 
 def test_neural_decoder_with_tensor_input():
     """NeuralDecoder 应该支持 tensor 输入"""
-    model = Conv3DNeuralDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
+    model = SurfaceCodeConv3DDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
 
     with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
         checkpoint_path = f.name
@@ -84,7 +84,7 @@ def test_neural_decoder_with_tensor_input():
 
 def test_neural_decoder_reduce_output():
     """NeuralDecoder 应该支持输出聚合"""
-    model = Conv3DNeuralDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
+    model = SurfaceCodeConv3DDecoder(Conv3DModelConfig(num_filters=[16, 16, 4], kernel_sizes=[3, 3, 3]))
 
     with tempfile.NamedTemporaryFile(suffix=".pt", delete=False) as f:
         checkpoint_path = f.name

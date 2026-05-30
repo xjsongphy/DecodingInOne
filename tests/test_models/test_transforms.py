@@ -1,7 +1,7 @@
 # tests/test_models/test_transforms.py
 import numpy as np
 import pytest
-from decoding_in_one.models.transforms import dets_to_conv3d_input, obs_to_conv3d_target, reduce_conv3d_output
+from decoding_in_one.models.surface_code.transforms import dets_to_conv3d_input, obs_to_conv3d_target, reduce_conv3d_output
 
 def test_dets_to_conv3d_input_basic():
     """基本功能测试"""

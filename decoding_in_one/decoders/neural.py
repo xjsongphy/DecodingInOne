@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from .base import Decoder, Correction
-from ..models.transforms import dets_to_conv3d_input, reduce_conv3d_output
+from ..models.surface_code.transforms import dets_to_conv3d_input, reduce_conv3d_output
 
 
 class NeuralDecoder(Decoder):

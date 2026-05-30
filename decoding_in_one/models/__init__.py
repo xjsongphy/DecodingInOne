@@ -1,13 +1,15 @@
 """神经网络模型模块
 
-包含解码模型的抽象基类、配置和具体实现。
+按码类型组织，common 包含可复用组件。
 """
 
-from decoding_in_one.models.base import DecodingModel
-from decoding_in_one.models.config import Conv3DModelConfig
-from decoding_in_one.models.conv3d import Conv3DNeuralDecoder
+# 向后兼容：从 surface_code 导出
+from .surface_code import (
+    SurfaceCodeConv3DDecoder,
+    Conv3DNeuralDecoder,  # 别名
+)
 
-# 也可以导出 transforms，但不放在 __all__ 中以避免命名冲突
-from decoding_in_one.models import transforms
+from .base import DecodingModel
+from .config import Conv3DModelConfig
 
-__all__ = ["DecodingModel", "Conv3DModelConfig", "Conv3DNeuralDecoder", "transforms"]
+__all__ = ["DecodingModel", "Conv3DModelConfig", "SurfaceCodeConv3DDecoder", "Conv3DNeuralDecoder"]

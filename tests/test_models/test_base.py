@@ -10,10 +10,11 @@ def test_decoding_model_is_abstract():
 
 def test_decoding_model_has_required_methods():
     """DecodingModel 子类必须实现抽象方法"""
-    from decoding_in_one.models.conv3d import Conv3DNeuralDecoder, Conv3DModelConfig
+    from decoding_in_one.models.surface_code.conv3d_decoder import SurfaceCodeConv3DDecoder
+    from decoding_in_one.models.config import Conv3DModelConfig
 
     config = Conv3DModelConfig()
-    model = Conv3DNeuralDecoder(config)
+    model = SurfaceCodeConv3DDecoder(config)
 
     assert callable(model.get_input_channels)
     assert callable(model.expected_input_rank)

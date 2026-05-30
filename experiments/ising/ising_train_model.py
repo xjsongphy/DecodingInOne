@@ -19,8 +19,8 @@ import stim
 import torch
 import yaml
 
-from decoding_in_one.models import Conv3DNeuralDecoder, Conv3DModelConfig
-from decoding_in_one.models.transforms import dets_to_conv3d_input, obs_to_conv3d_target
+from decoding_in_one.models import SurfaceCodeConv3DDecoder, Conv3DModelConfig
+from decoding_in_one.models.surface_code import dets_to_conv3d_input, obs_to_conv3d_target
 from decoding_in_one.training import Trainer, OptimConfig
 from decoding_in_one.data import IsingDataConfig, sample_detectors_observables, build_dataloaders
 
@@ -110,7 +110,7 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
     )
 
     # 创建模型
-    model = Conv3DNeuralDecoder(cfg.model)
+    model = SurfaceCodeConv3DDecoder(cfg.model)
 
     # 训练
     trainer = Trainer(model, cfg.training)
