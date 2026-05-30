@@ -45,3 +45,6 @@ outputs/
 
 # Logs
 *.log
+
+# Working Files
+TODO.mddocs/
