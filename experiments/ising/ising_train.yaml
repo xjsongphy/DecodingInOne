@@ -5,8 +5,8 @@
 distance: 5
 rounds: 5
 basis: O1  # O1, O2, O3, O4 (对应 Ising-Decoding 的 code_rotation)
-train_shots: 80000
-val_shots: 20000
+train_shots: 800000
+val_shots: 200000
 
 # 噪声模型配置（25 参数电路级噪声，p=0.003）
 # 态制备错误（2）
@@ -56,7 +56,7 @@ dropout: 0.1
 
 # 训练优化配置
 batch_size: 1024
-epochs: 10
+epochs: 100
 lr: 0.001
 weight_decay: 0.00001
 device: auto
