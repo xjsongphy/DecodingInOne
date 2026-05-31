@@ -12,6 +12,17 @@ dependencies = [
     "networkx>=3.0",
 ]
 
+[project.optional-dependencies]
+cpu = [
+    "torch>=2.5,<2.8",
+]
+cu124 = [
+    "torch @ https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-win_amd64.whl",
+]
+cuda = [
+    "decoding-in-one[cu124]",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -20,7 +31,6 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [dependency-groups]
-# 基础依赖（不含 PyTorch）
 default = [
     "stim>=1.9.0",
     "pymatching>=2.0.0",
@@ -29,17 +39,10 @@ default = [
     "networkx>=3.0",
 ]
 
-# CPU 版本 PyTorch
 cpu = [
-    "torch>=2.5",
+    "torch>=2.5,<2.8",
 ]
 
-# CUDA 版本 PyTorch
-cuda = [
-    "torch>=2.5",
-]
-
-# 开发工具
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -48,4 +51,4 @@ dev = [
 ]
 
 [tool.uv]
-default-group = "default"
+default-groups = ["default"]
