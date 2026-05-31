@@ -18,5 +18,5 @@ p_after_reset_flip: 0.001
 
 seed: 0
 latency_samples: 5000
-out_dir: experiments/ising/output
+out_dir: outputs/ising/pipeline  # 根目录下的 outputs
 save_circuit: true

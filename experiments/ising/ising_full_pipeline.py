@@ -26,7 +26,7 @@ class PipelineConfig:
     """推理流程配置"""
     distance: int = 5
     rounds: int = 5
-    basis: str = "X"
+    basis: str = "O1"  # O1, O2, O3, O4
     shots: int = 20000
     p_after_clifford: float = 0.001
     p_before_round_data: float = 0.001
@@ -34,8 +34,8 @@ class PipelineConfig:
     p_after_reset_flip: float = 0.001
     seed: int = 0
     latency_samples: int = 5000
-    out_dir: str = "experiments/ising/output"
-    checkpoint_path: str = "experiments/ising/train_output/best_model.pt"
+    out_dir: str = "outputs/ising/pipeline"  # 根目录下的 outputs
+    checkpoint_path: str = "outputs/ising/train/best_model.pt"
     save_circuit: bool = True
 
 

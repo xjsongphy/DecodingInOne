@@ -24,28 +24,40 @@
 
 #### 数据生成配置（`IsingDataConfig`）
 
-| 参数 | 默认值 | 说明 | 推荐范围 |
-|------|--------|------|----------|
-| `distance` | 5 | 码距，决定电路大小 | 3-7（更大→更多物理比特） |
-| `rounds` | 5 | 测量轮数，决定时间深度 | 3-11（更多→更长历史） |
-| `basis` | "X" | 测量基（"X" 或 "Z"） | "X" 或 "Z" |
-| `train_shots` | 80000 | 训练样本数 | 10000-100000（快速测试用更小值） |
-| `val_shots` | 20000 | 验证样本数 | train_shots 的 1/4 |
-| `p_after_clifford` | 0.001 | Clifford 后去极化噪声 | 0.0001-0.01 |
-| `p_before_round_data` | 0.001 | Round 前数据去极化 | 0.0001-0.01 |
-| `p_before_measure_flip` | 0.001 | 测量前翻转概率 | 0.0001-0.01 |
-| `p_after_reset_flip` | 0.001 | Reset 后翻转概率 | 0.0001-0.01 |
+| 参数 | 默认值 | 说明 | 推荐范围 | Ising-Decoding 项目 |
+|------|--------|------|----------|-------------------|
+| `distance` | 5 | 码距，决定电路大小 | 3-7（更大→更多物理比特） | R=9 (Model 1): 9<br>R=13 (Model 4): 13 |
+| `rounds` | 5 | 测量轮数，决定时间深度 | 3-11（更多→更长历史） | R=9: 9<br>R=13: 13 |
+| `basis` | "O1" | 表面码方向（O1-O4） | O1, O2, O3, O4 | O1, O2, O3, O4 (code_rotation) |
+| `train_shots` | 80000 | 训练样本数 | 10000-100000（快速测试用更小值） | 67M/epoch (8 GPU) |
+| `val_shots` | 20000 | 验证样本数 | train_shots 的 1/4 | - |
+
+**25 参数噪声模型（与 Ising-Decoding 一致）：**
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `p_prep_X/Z` | 0.002 | 态制备错误（2 个参数） |
+| `p_meas_X/Z` | 0.002 | 测量错误（2 个参数） |
+| `p_idle_cnot_X/Y/Z` | 0.001 | CNOT 层空闲错误（3 个参数） |
+| `p_idle_spam_X/Y/Z` | 0.001996 | SPAM 窗口空闲错误（3 个参数） |
+| `p_cnot_*` | 0.0002 | CNOT 两比特错误（15 个参数） |
+
+> **注：** 本项目现已使用与 Ising-Decoding 一致的 25 参数电路级噪声模型。`basis` 参数使用 O1-O4 表示表面码旋转方向，映射关系：
+> - O1 → XV（X 型稳定子优先，垂直边界）
+> - O2 → XH（X 型稳定子优先，水平边界）
+> - O3 → ZV（Z 型稳定子优先，垂直边界）
+> - O4 → ZH（Z 型稳定子优先，水平边界）
 
 #### 模型结构配置（`Conv3DModelConfig`）
 
-| 参数 | 默认值 | 说明 | 推荐范围 |
-|------|--------|------|----------|
-| `input_channels` | 4 | 输入通道数（固定） | 4（dets→4通道） |
-| `out_channels` | 4 | 输出通道数（固定） | 4（对应 4 个时空通道） |
-| `num_filters` | [64,64,64,4] | 各层卷积核数 | 小模型：[32,32,32,4]，大模型：[128,128,128,4] |
-| `kernel_sizes` | [3,3,3,3] | 各层卷积核大小 | 3 或 5 |
-| `activation` | "gelu" | 激活函数 | "relu", "gelu", "leakyrelu" |
-| `dropout` | 0.1 | Dropout 概率 | 0.0-0.3 |
+| 参数 | 默认值 | 说明 | 推荐范围 | Ising-Decoding 项目 |
+|------|--------|------|----------|-------------------|
+| `input_channels` | 4 | 输入通道数（固定） | 4（dets→4通道） | 4 |
+| `out_channels` | 4 | 输出通道数（固定） | 4（对应 4 个时空通道） | 4 |
+| `num_filters` | [64,64,64,4] | 各层卷积核数 | 小模型：[32,32,32,4]，大模型：[128,128,128,4] | Model 1 (R=9): 自定义<br>Model 4 (R=13): 自定义 |
+| `kernel_sizes` | [3,3,3,3] | 各层卷积核大小 | 3 或 5 | 3 |
+| `activation` | "gelu" | 激活函数 | "relu", "gelu", "leakyrelu" | ReLU |
+| `dropout` | 0.1 | Dropout 概率 | 0.0-0.3 | - |
 
 **网络参数量估算：**
 ```
@@ -55,15 +67,15 @@
 
 #### 训练优化配置（`OptimConfig`）
 
-| 参数 | 默认值 | 说明 | 推荐范围 |
-|------|--------|------|----------|
-| `batch_size` | 1024 | 批大小 | 64-512（GPU 内存受限时用更小值） |
-| `epochs` | 10 | 训练轮数 | 5-20 |
-| `lr` | 0.001 | 学习率 | 0.0001-0.01 |
-| `weight_decay` | 0.00001 | 权重衰减（L2 正则化） | 1e-5-1e-3 |
-| `device` | "auto" | 训练设备 | "auto", "cpu", "cuda" |
-| `seed` | 0 | 随机种子 | 任意整数 |
-| `out_dir` | "experiments/ising/train_output" | 输出目录 | 任意路径 |
+| 参数 | 默认值 | 说明 | 推荐范围 | Ising-Decoding 项目 |
+|------|--------|------|----------|-------------------|
+| `batch_size` | 1024 | 批大小 | 64-512（GPU 内存受限时用更小值） | 自适应（按 GPU 数量） |
+| `epochs` | 10 | 训练轮数 | 5-20 | 100+（Models 1,4,5 需至少 100） |
+| `lr` | 0.001 | 学习率 | 0.0001-0.01 | 自适应调度（基于 milestones） |
+| `weight_decay` | 0.00001 | 权重衰减（L2 正则化） | 1e-5-1e-3 | - |
+| `device` | "auto" | 训练设备 | "auto", "cpu", "cuda" | 多 GPU DDP |
+| `seed` | 0 | 随机种子 | 任意整数 | - |
+| `out_dir` | "outputs/ising/train" | 输出目录 | 任意路径 | `$SHARED_OUTPUT_DIR/outputs/` |
 
 ### 运行方式
 
@@ -80,7 +92,7 @@ python experiments/ising/ising_train_model.py \
   --val-shots 500 \
   --epochs 1 \
   --batch-size 64 \
-  --out-dir /tmp/ising_test
+  --out-dir outputs/ising/test
 
 # 中等规模测试（约 5 分钟）
 python experiments/ising/ising_train_model.py \
@@ -144,20 +156,20 @@ lr: 0.0005
 
 ### 配置参数
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `checkpoint_path` | "experiments/ising/train_output/best_model.pt" | 模型 checkpoint 路径 |
-| `shots` | 20000 | 推理样本数 |
-| `latency_samples` | 5000 | 延迟测试样本数 |
+| 参数 | 默认值 | 说明 | Ising-Decoding 项目 |
+|------|--------|------|-------------------|
+| `checkpoint_path` | "outputs/ising/train/best_model.pt" | 模型 checkpoint 路径 | `$SHARED_OUTPUT_DIR/outputs/$EXPERIMENT_NAME/models/` |
+| `shots` | 20000 | 推理样本数 | 用户定义 |
+| `latency_samples` | 5000 | 延迟测试样本数 | - |
 
 ### 运行方式
 
 ```bash
 # 使用训练好的模型进行推理
 python experiments/ising/ising_full_pipeline.py \
-  --checkpoint-path experiments/ising/train_output/best_model.pt \
+  --checkpoint-path outputs/ising/train/best_model.pt \
   --shots 10000 \
-  --out-dir experiments/ising/pipeline_output
+  --out-dir outputs/ising/pipeline
 ```
 
 ---

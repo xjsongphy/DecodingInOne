@@ -1,14 +1,46 @@
 # Ising 训练实验配置
-# 现在支持三类配置分离
+# 兼容 Ising-Decoding 项目的参数格式
 
 # 数据生成配置
 distance: 5
 rounds: 5
-basis: X
+basis: O1  # O1, O2, O3, O4 (对应 Ising-Decoding 的 code_rotation)
 train_shots: 80000
 val_shots: 20000
 
-# 噪声参数
+# 噪声模型配置（25 参数电路级噪声，p=0.003）
+# 态制备错误（2）
+p_prep_X: 0.002
+p_prep_Z: 0.002
+# 测量错误（2）
+p_meas_X: 0.002
+p_meas_Z: 0.002
+# CNOT 层空闲错误（3）
+p_idle_cnot_X: 0.001
+p_idle_cnot_Y: 0.001
+p_idle_cnot_Z: 0.001
+# SPAM 窗口空闲错误（3）
+p_idle_spam_X: 0.001996
+p_idle_spam_Y: 0.001996
+p_idle_spam_Z: 0.001996
+# CNOT 两比特错误（15）
+p_cnot_IX: 0.0002
+p_cnot_IY: 0.0002
+p_cnot_IZ: 0.0002
+p_cnot_XI: 0.0002
+p_cnot_XX: 0.0002
+p_cnot_XY: 0.0002
+p_cnot_XZ: 0.0002
+p_cnot_YI: 0.0002
+p_cnot_YX: 0.0002
+p_cnot_YY: 0.0002
+p_cnot_YZ: 0.0002
+p_cnot_ZI: 0.0002
+p_cnot_ZX: 0.0002
+p_cnot_ZY: 0.0002
+p_cnot_ZZ: 0.0002
+
+# 向后兼容的 4 参数接口（已废弃）
 p_after_clifford: 0.001
 p_before_round_data: 0.001
 p_before_measure_flip: 0.001
@@ -29,4 +61,4 @@ lr: 0.001
 weight_decay: 0.00001
 device: auto
 seed: 0
-out_dir: experiments/ising/train_output
+out_dir: outputs/ising/train  # 根目录下的 outputs
