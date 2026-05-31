@@ -1,12 +1,13 @@
 # Ising 训练实验配置
-# 兼容 Ising-Decoding 项目的参数格式
+# 完全独立运行，不依赖外部 Ising-Decoding 文件
 
 # 数据生成配置
-distance: 5
-rounds: 5
+distance: 9
+rounds: 9
 basis: O1  # O1, O2, O3, O4 (对应 Ising-Decoding 的 code_rotation)
 train_shots: 800000
 val_shots: 200000
+precomputed_frames_dir: null  # 可选：预计算 DEM 目录（null = 自动从 Stim 电路提取）
 
 # 噪声模型配置（25 参数电路级噪声，p=0.003）
 # 态制备错误（2）
@@ -56,9 +57,9 @@ dropout: 0.1
 
 # 训练优化配置
 batch_size: 1024
-epochs: 100
+epochs: 64
 lr: 0.001
 weight_decay: 0.00001
 device: auto
 seed: 0
-out_dir: outputs/ising/train  # 根目录下的 outputs
+out_dir: outputs/ising  # 基础目录（时间戳会自动添加）

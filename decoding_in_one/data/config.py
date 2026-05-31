@@ -13,6 +13,8 @@ class IsingDataConfig:
 
     # 噪声模型配置路径（25 参数电路级噪声）
     noise_model_path: Optional[str] = None
+    # 预计算 DEM 矩阵目录（Ising-Decoding 同款 frame_predecoder 产物）
+    precomputed_frames_dir: Optional[str] = None
 
     # 兼容旧版 4 参数接口（已废弃，保留用于向后兼容）
     p_after_clifford: float = 0.001
