@@ -12,47 +12,9 @@ dependencies = [
     "networkx>=3.0",
 ]
 
-[project.optional-dependencies]
-# CPU-only PyTorch (2.5.x)
-cpu = [
-    "torch>=2.5,<2.8",
-    "torchvision>=0.20,<0.23",
-]
-
-# CUDA 11.8
-cu118 = [
-    "torch @ https://download.pytorch.org/whl/cu118/torch-2.5.1%2Bcu118-cp312-cp312-win_amd64.whl",
-    "torchvision @ https://download.pytorch.org/whl/cu118/torchvision-0.20.1%2Bcu118-cp312-cp312-win_amd64.whl",
-]
-
-# CUDA 12.1
-cu121 = [
-    "torch @ https://download.pytorch.org/whl/cu121/torch-2.5.1%2Bcu121-cp312-cp312-win_amd64.whl",
-    "torchvision @ https://download.pytorch.org/whl/cu121/torchvision-0.20.1%2Bcu121-cp312-cp312-win_amd64.whl",
-]
-
-# CUDA 12.4 (推荐)
-cu124 = [
-    "torch @ https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-win_amd64.whl",
-    "torchvision @ https://download.pytorch.org/whl/cu124/torchvision-0.20.1%2Bcu124-cp312-cp312-win_amd64.whl",
-]
-
-# CUDA 12.8 (最新)
-cu128 = [
-    "torch @ https://download.pytorch.org/whl/cu128/torch-2.5.1%2Bcu128-cp312-cp312-win_amd64.whl",
-    "torchvision @ https://download.pytorch.org/whl/cu128/torchvision-0.20.1%2Bcu128-cp312-cp312-win_amd64.whl",
-]
-
-# 通用 CUDA 版本 (默认 cu124)
-cuda = ["decoding-in-one[cu124]"]
-
-# 开发依赖
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 default = [
@@ -69,15 +31,17 @@ cpu = [
     "torchvision>=0.20,<0.23",
 ]
 
-# CUDA 版本 PyTorch (默认 cu124)
+# CUDA 版本 PyTorch (需要使用 index-url)
+# 安装命令: uv sync --extra cuda --index-url https://download.pytorch.org/whl/cu124
 cuda = [
-    "torch @ https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-win_amd64.whl",
-    "torchvision @ https://download.pytorch.org/whl/cu124/torchvision-0.20.1%2Bcu124-cp312-cp312-win_amd64.whl",
+    "torch>=2.5,<2.8",
+    "torchvision>=0.20,<0.23",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true
+# 开发工具
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
