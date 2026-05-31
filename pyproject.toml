@@ -16,7 +16,11 @@ dependencies = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [dependency-groups]
+# 基础依赖（不含 PyTorch）
 default = [
     "stim>=1.9.0",
     "pymatching>=2.0.0",
@@ -27,15 +31,12 @@ default = [
 
 # CPU 版本 PyTorch
 cpu = [
-    "torch>=2.5,<2.8",
-    "torchvision>=0.20,<0.23",
+    "torch>=2.5",
 ]
 
-# CUDA 版本 PyTorch (需要使用 index-url)
-# 安装命令: uv sync --extra cuda --index-url https://download.pytorch.org/whl/cu124
+# CUDA 版本 PyTorch
 cuda = [
-    "torch>=2.5,<2.8",
-    "torchvision>=0.20,<0.23",
+    "torch>=2.5",
 ]
 
 # 开发工具
@@ -45,3 +46,6 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
+
+[tool.uv]
+default-group = "default"
