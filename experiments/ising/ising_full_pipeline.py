@@ -53,11 +53,27 @@ def _load_config(config_path: str | None) -> PipelineConfig:
 
 
 def _task_from_basis(basis: str) -> str:
-    """从测量基获取 Stim 任务名称"""
+    """从测量基获取 Stim 任务名称
+
+    支持:
+    - O1-O4: 表面码旋转方向 (O1=XV, O2=XH, O3=ZV, O4=ZH)
+    - X/Z: 兼容旧格式
+    """
     b = basis.strip().upper()
-    if b not in ("X", "Z"):
-        raise ValueError("basis must be 'X' or 'Z'")
-    return f"surface_code:rotated_memory_{b.lower()}"
+
+    # O1-O4 映射到测量基
+    if b in ("O1", "O2"):
+        return "surface_code:rotated_memory_x"
+    if b in ("O3", "O4"):
+        return "surface_code:rotated_memory_z"
+
+    # 兼容旧格式 X/Z
+    if b == "X":
+        return "surface_code:rotated_memory_x"
+    if b == "Z":
+        return "surface_code:rotated_memory_z"
+
+    raise ValueError("basis must be O1-O4 or X/Z")
 
 
 def _build_stim_circuit(cfg: PipelineConfig) -> stim.Circuit:
