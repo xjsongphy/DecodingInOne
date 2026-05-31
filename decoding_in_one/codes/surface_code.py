@@ -173,3 +173,37 @@ class SurfaceCode(QuantumCode):
         if stabilizer_type == "Z":
             return {k: tuple(v) for k, v in self._z_connections.items()}
         raise ValueError("stabilizer_type must be 'X' or 'Z'")
+
+    def get_stabilizer_measurement_layers(
+        self, stabilizer_type: str
+    ) -> List[List[Tuple[int, int]]]:
+        """返回表面码优化的四层 CNOT 结构
+
+        对于表面码，稳定子测量可以优化为四层并发 CNOT。
+        这是表面码的局部性特性带来的优化。
+
+        Args:
+            stabilizer_type: 'X' 或 'Z'
+
+        Returns:
+            四层 CNOT，每层是 [(control, target), ...]
+            control 是辅助比特（check qubit），target 是数据比特
+
+        Note:
+            这覆盖了基类的贪心着色算法，使用表面码优化的固定四层结构。
+        """
+        supports = self.get_stabilizer_supports(stabilizer_type)
+        check_qubits = self.get_check_qubits(stabilizer_type)
+
+        # 四层结构：按照支撑数据比特的相对位置分组
+        layers = [[], [], [], []]
+
+        for check_q in check_qubits:
+            support = supports.get(check_q, [])
+            # 根据支撑数据比特的位置分配到四层
+            for i, data_q in enumerate(support):
+                if i < 4:
+                    layers[i].append((check_q, data_q))
+
+        # 过滤空层
+        return [layer for layer in layers if layer]
