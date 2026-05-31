@@ -10,4 +10,4 @@ class OptimConfig:
     weight_decay: float = 1e-5
     device: str = "auto"
     seed: int = 0
-    out_dir: str = "outputs/ising/train"  # 根目录下的 outputs
+    out_dir: str = "outputs/ising"  # 时间戳目录会在这里创建
