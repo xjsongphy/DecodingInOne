@@ -60,6 +60,8 @@ source .venv/bin/activate  # Linux/Mac
 
 基于 Ising-Decoding 架构的训练流程，**完全独立运行，无需外部依赖**：
 
+#### Conv3D 解码器训练
+
 ```bash
 # 使用默认配置训练（自动从 Stim 电路提取 DEM）
 python experiments/ising/ising_train_model.py
@@ -75,6 +77,30 @@ python experiments/ising/ising_train_model.py \
     --train-shots 100000 \
     --epochs 32
 ```
+
+#### GNN 解码器训练
+
+基于图神经网络的解码器，使用与 Conv3D 相当的参数量（~1.3M）：
+
+```bash
+# 使用 GNN 配置训练
+python experiments/ising/ising_train_model.py --config experiments/ising/ising_train_gnn.yaml
+
+# GNN 特定参数覆盖
+python experiments/ising/ising_train_model.py \
+    --config experiments/ising/ising_train_gnn.yaml \
+    --distance 9 \
+    --rounds 9 \
+    --train-shots 100000 \
+    --epochs 64
+```
+
+**GNN 解码器特性**：
+- 8 层图注意力网络（GAT）
+- 256 隐藏通道，8 个注意力头
+- 参数量：1.32M（与 Conv3D 的 1.36M 相当）
+- 自动构建 syndrome 图结构（检测器节点 + 数据比特节点）
+- 支持空间边、时间边和支撑边
 
 ### 并行采样配置
 
