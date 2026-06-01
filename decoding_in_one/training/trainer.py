@@ -71,9 +71,12 @@ class Trainer:
         )
 
         # 创建带时间戳的输出目录
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_dir = Path(self.config.out_dir)
-        run_dir = base_dir / timestamp
+        if hasattr(self, "run_dir"):
+            run_dir = Path(self.run_dir)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_dir = Path(self.config.out_dir)
+            run_dir = base_dir / timestamp
         run_dir.mkdir(parents=True, exist_ok=True)
 
         history: list[dict[str, float]] = []
