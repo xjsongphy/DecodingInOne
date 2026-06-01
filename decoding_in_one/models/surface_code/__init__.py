@@ -4,6 +4,7 @@
 """
 
 from .conv3d_decoder import SurfaceCodeConv3DDecoder
+from .gnn_decoder import SurfaceCodeGNNDecoder
 from .transforms import (
     dets_to_conv3d_input,
     obs_to_conv3d_target,
@@ -15,6 +16,7 @@ Conv3DNeuralDecoder = SurfaceCodeConv3DDecoder
 
 __all__ = [
     "SurfaceCodeConv3DDecoder",
+    "SurfaceCodeGNNDecoder",
     "Conv3DNeuralDecoder",  # 向后兼容
     "dets_to_conv3d_input",
     "obs_to_conv3d_target",

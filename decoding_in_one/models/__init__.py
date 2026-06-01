@@ -9,7 +9,17 @@ from .surface_code import (
     Conv3DNeuralDecoder,  # 别名
 )
 
-from .base import DecodingModel
-from .config import Conv3DModelConfig
+# GNN 解码器
+from .surface_code.gnn_decoder import SurfaceCodeGNNDecoder
 
-__all__ = ["DecodingModel", "Conv3DModelConfig", "SurfaceCodeConv3DDecoder", "Conv3DNeuralDecoder"]
+from .base import DecodingModel
+from .config import Conv3DModelConfig, GNNModelConfig
+
+__all__ = [
+    "DecodingModel",
+    "Conv3DModelConfig",
+    "GNNModelConfig",
+    "SurfaceCodeConv3DDecoder",
+    "Conv3DNeuralDecoder",
+    "SurfaceCodeGNNDecoder",
+]
