@@ -76,6 +76,27 @@ python experiments/ising/ising_train_model.py \
     --epochs 32
 ```
 
+### 并行采样配置
+
+对于大批量数据生成（100,000+ 样本），可以启用并行采样加速：
+
+**配置文件 (`ising_train.yaml`)**：
+```yaml
+# 并行采样配置（可选，默认关闭）
+enable_parallel: true    # 启用并行采样
+num_workers: 4          # 工作数（GPU 数量或 CPU 进程数）
+parallel_device_ids: [0, 1]  # 指定使用的 GPU（null = 自动检测）
+```
+
+**何时启用并行**：
+- ✅ `train_shots ≥ 100,000` - 推荐启用
+- ✅ 有多张 GPU 或多核 CPU
+- ❌ `train_shots < 10,000` - 不推荐（开销大于收益）
+
+**性能提升**：
+- 单 GPU → 双 GPU：~2x 加速
+- 单进程 → 八进程 CPU：~7x 加速
+
 **输出目录结构**：
 ```
 outputs/ising/YYYYMMDD_HHMMSS/
@@ -89,6 +110,7 @@ outputs/ising/YYYYMMDD_HHMMSS/
 - ✅ 自动从 MemoryCircuit 生成的 Stim 电路提取 DEM 矩阵
 - ✅ 不依赖 Ising-Decoding 的预计算文件
 - ✅ 可选使用预计算文件加速（`precomputed_frames_dir`）
+- ✅ 可选启用并行采样加速（`enable_parallel`）
 
 ### 基础代码示例
 
