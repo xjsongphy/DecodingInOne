@@ -20,11 +20,19 @@ import numpy as np
 import stim
 import torch
 
-from decoding_in_one.sampling.dem import dem_sampling
+from decoding_in_one.sampling.dem import dem_sampling, dem_sampling_parallel
 from decoding_in_one.surface_code.data_mapping import (
     normalized_weight_mapping_Xstab_memory,
     normalized_weight_mapping_Zstab_memory,
 )
+
+# tqdm 进度条（可选依赖）
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    tqdm = None  # type: ignore
+    TQDM_AVAILABLE = False
 
 
 def _npz1(path: Path):
@@ -70,7 +78,19 @@ def extract_dem_from_stim_circuit(
 
     H_rows, Hz_rows, p_list = [], [], []
 
-    for line in str(dem).strip().split("\n"):
+    dem_str = str(dem).strip().split("\n")
+    n_errors = len(dem_str)
+
+    # 显示进度条（DEM 提取可能很慢）
+    if TQDM_AVAILABLE and n_errors > 100:
+        print(f"[DEM] Extracting {n_errors} error mechanisms from Stim circuit...")
+        iterator = tqdm(dem_str, desc="Extracting DEM", total=n_errors, unit="errors")
+    else:
+        iterator = dem_str
+        if n_errors > 0:
+            print(f"[DEM] Extracting {n_errors} error mechanisms...")
+
+    for line in iterator:
         line = line.strip()
         m = error_re.match(line)
         if not m:
@@ -140,6 +160,10 @@ class CircuitDataGenerator:
         p: Optional[torch.Tensor] = None,
         A: Optional[torch.Tensor] = None,
         p_override: Optional[Union[torch.Tensor, np.ndarray]] = None,
+        # 并行采样配置
+        enable_parallel: bool = False,
+        num_workers: int = 4,
+        device_ids: Optional[List[int]] = None,
         # 设备
         device: Optional[torch.device] = None,
     ):
@@ -148,6 +172,11 @@ class CircuitDataGenerator:
         self.basis = str(basis).upper()
         self.code_rotation = str(code_rotation).upper()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # 并行采样配置
+        self.enable_parallel = enable_parallel
+        self.num_workers = num_workers
+        self.device_ids = device_ids
 
         # ---------- 加载 DEM 矩阵 ----------
         if H is not None and p is not None:
@@ -245,6 +274,8 @@ class CircuitDataGenerator:
         self,
         batch_size: int,
         seed: Optional[int] = None,
+        keep_on_cpu: bool = False,
+        verbose: bool = True,
     ) -> dict[str, torch.Tensor]:
         """
         生成一个批次的训练数据（Ising-Decoding 方式）。
@@ -258,6 +289,8 @@ class CircuitDataGenerator:
         Args:
             batch_size: 批次大小
             seed: 可选随机种子
+            keep_on_cpu: 保持数据在 CPU 上
+            verbose: 是否打印采样日志（分批采样时设为 False）
 
         Returns:
             dict with:
@@ -269,10 +302,19 @@ class CircuitDataGenerator:
             device_index = self.device.index
             device_id = int(torch.cuda.current_device() if device_index is None else device_index)
 
-        # 1. 采样误差帧
-        frames_xz = dem_sampling(
-            self.H, self.p, batch_size, device_id=device_id, seed=seed
-        )  # (B, 2*n_det)
+        # 1. 采样误差帧（支持并行）
+        if self.enable_parallel and batch_size >= 10000:
+            frames_xz = dem_sampling_parallel(
+                self.H, self.p, batch_size,
+                num_workers=self.num_workers,
+                device_ids=self.device_ids,
+                seed=seed,
+                verbose=verbose,
+            )
+        else:
+            frames_xz = dem_sampling(
+                self.H, self.p, batch_size, device_id=device_id, seed=seed
+            )  # (B, 2*n_det)
 
         # 2. 提取累积数据比特帧
         # frames_xz = [X_block | Z_block]，每个 block 有 (n_rounds * n_qubits) 列
@@ -302,8 +344,18 @@ class CircuitDataGenerator:
         x_diff = xpad[:, :-1, :] ^ xpad[:, 1:, :]  # (B, R, D²)
         z_diff = zpad[:, :-1, :] ^ zpad[:, 1:, :]
 
-        # 4. Ising-Decoding 格式化
-        trainX, trainY = self._format_for_model(x_diff, z_diff)
+        # 4. Ising-Decoding 格式化（在 CPU 上执行以避免 GPU OOM）
+        # 将张量移到 CPU 进行格式化，避免 GPU 内存峰值
+        device_orig = x_diff.device
+        x_diff_cpu = x_diff.to("cpu")
+        z_diff_cpu = z_diff.to("cpu")
+
+        trainX, trainY = self._format_for_model(x_diff_cpu, z_diff_cpu)
+
+        # 将最终结果移回原设备（如果需要）
+        if device_orig.type != "cpu" and not keep_on_cpu:
+            trainX = trainX.to(device_orig)
+            trainY = trainY.to(device_orig)
 
         return {"trainX": trainX, "trainY": trainY}
 
@@ -328,14 +380,19 @@ class CircuitDataGenerator:
         B, R, D2 = x_diff.shape
         D = self.distance
 
+        # 获取输入张量的设备（确保与权重映射一致）
+        device = x_diff.device
+
         # 差分 reshape 到 D×D 网格
         x_err = x_diff.reshape(B, R, D, D)
         z_err = z_diff.reshape(B, R, D, D)
         # 注意：x_diff 来自 X-frame 差分，直接 reshape 即可
 
-        # 权重映射（presence 通道）
-        x_pres = self.w_mapXgrid.unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
-        z_pres = self.w_mapZgrid.unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
+        # 权重映射（presence 通道）- 移到与输入相同的设备
+        w_mapX = self.w_mapXgrid.to(device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
+        w_mapZ = self.w_mapZgrid.to(device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
+        x_pres = w_mapX
+        z_pres = w_mapZ
 
         # basis 掩码（与 Ising-Decoding 一致）
         if self.basis == "X":

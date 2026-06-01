@@ -11,15 +11,18 @@ DEM (Detector Error Model) 矩阵采样核心函数
 
 提供三个核心函数：
 - dem_sampling(): 从 DEM 矩阵 (H, p) 采样误差帧
+- dem_sampling_parallel(): 并行采样（多 GPU/进程）
 - measure_from_stacked_frames(): 从堆叠帧提取测量值
 - timelike_syndromes(): 应用 A 矩阵做时间方向校正
 """
 
 from __future__ import annotations
 
+import sys
 import time
 from collections import deque
-from typing import Optional
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from typing import Optional, List
 
 import numpy as np
 import torch
@@ -60,6 +63,7 @@ _cached_seed: Optional[int] = None
 
 _DEM_TIMINGS_S: deque[float] = deque(maxlen=200)
 _custab_path_logged: bool = False
+_cpu_fallback_logged: bool = False
 
 _MIN_MAX_SHOTS = 1024
 
@@ -136,7 +140,7 @@ def dem_sampling(
         frames_xz: (batch_size, 2*num_detectors) uint8 — 检测器输出
     """
     global _cached_sampler, _cached_H, _cached_HT, _cached_max_shots
-    global _cached_device_id, _cached_seed, _custab_path_logged
+    global _cached_device_id, _cached_seed, _custab_path_logged, _cpu_fallback_logged
 
     if H.ndim != 2:
         raise ValueError(f"H must be 2-D, got ndim={H.ndim}")
@@ -147,6 +151,9 @@ def dem_sampling(
 
     # ---- CPU fallback ----
     if not _CUSTAB_AVAILABLE:
+        if not _cpu_fallback_logged:
+            print("[dem_sampling] cuQuantum unavailable; using CPU numpy fallback")
+            _cpu_fallback_logged = True
         return _dem_sampling_cpu(H, p, batch_size, seed=seed)
 
     # ---- GPU 路径 (cuST BitMatrixSampler) ----
@@ -198,6 +205,13 @@ def dem_sampling(
         _cached_seed = seed
 
     t0 = time.perf_counter()
+
+    # 显示采样进度（大批量采样可能很慢）
+    if batch_size >= 10000:
+        device_str = f"GPU:{device_id}" if device_id is not None else ("GPU" if gpu_native else "CPU")
+        print(f"[dem_sampling] Sampling {batch_size:,} shots on {device_str}...")
+        sys.stdout.flush()  # 确保立即输出
+
     if gpu_native:
         import cupy as cp
 
@@ -286,3 +300,159 @@ def timelike_syndromes(
     """
     s2 = torch.remainder(frames_xz.float() @ A.t().float(), 2).to(torch.uint8)
     return (s2 ^ meas_old.reshape(meas_old.shape[0], -1)).reshape_as(meas_old)
+
+
+# ===================================================================
+# 并行采样支持
+# ===================================================================
+
+
+def dem_sampling_parallel(
+    H: torch.Tensor,
+    p: torch.Tensor,
+    batch_size: int,
+    num_workers: int = 4,
+    device_ids: Optional[List[int]] = None,
+    seed: Optional[int] = None,
+    verbose: bool = True,
+) -> torch.Tensor:
+    """
+    并行采样误差帧（多 GPU 或多进程）
+
+    支持两种并行模式：
+    1. 多 GPU 并行：每个 GPU 独立采样一部分
+    2. 多进程并行：CPU fallback 时使用多进程
+
+    Args:
+        H: (2*num_detectors, num_errors) uint8 — 检测器-误差关联
+        p: (num_errors,) float32 — 每个误差的概率
+        batch_size: 总采样数量
+        num_workers: 并行工作数（多 GPU 时为 GPU 数量）
+        device_ids: GPU 设备 ID 列表（None = 自动检测所有 GPU）
+        seed: RNG 基础种子（每个 worker 使用不同偏移）
+
+    Returns:
+        frames_xz: (batch_size, 2*num_detectors) uint8 — 检测器输出
+    """
+    # 自动检测可用 GPU
+    if device_ids is None and torch.cuda.is_available():
+        device_ids = list(range(torch.cuda.device_count()))
+        num_workers_gpu = min(num_workers, len(device_ids))
+    elif device_ids is None:
+        device_ids = []
+        num_workers_gpu = 0
+    else:
+        num_workers_gpu = min(num_workers, len(device_ids))
+
+    # 小批次不需要并行
+    if batch_size < 10000:
+        return dem_sampling(H, p, batch_size, device_id=device_ids[0] if device_ids else None, seed=seed)
+
+    # 判断并行模式：多 GPU vs 多进程 CPU
+    use_multi_gpu = num_workers_gpu > 1
+    use_multi_process = (not use_multi_gpu) and (num_workers > 1) and (not _CUSTAB_AVAILABLE)
+
+    if not (use_multi_gpu or use_multi_process):
+        # 单路径（单 GPU 或单进程）
+        return dem_sampling(H, p, batch_size, device_id=device_ids[0] if device_ids else None, seed=seed)
+
+    if verbose:
+        if use_multi_gpu:
+            print(f"[Parallel] Using {num_workers_gpu} GPU workers for {batch_size:,} samples")
+        elif use_multi_process:
+            print(f"[Parallel] Using {num_workers} CPU processes for {batch_size:,} samples")
+
+    # 计算每个 worker 的批次大小
+    workers_count = num_workers_gpu if use_multi_gpu else num_workers
+    chunk_size = batch_size // workers_count
+    remainder = batch_size % workers_count
+
+    # 多 GPU 并行
+    if use_multi_gpu:
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            import threading
+
+            results = [None] * num_workers
+            errors = [None] * num_workers
+
+            def _worker(worker_id: int, device_id: int, start: int, end: int):
+                try:
+                    worker_seed = None if seed is None else seed + worker_id * 10000
+                    results[worker_id] = dem_sampling(
+                        H, p, end - start, device_id=device_id, seed=worker_seed
+                    )
+                except Exception as e:
+                    errors[worker_id] = e
+
+            threads = []
+            offset = 0
+            for i in range(num_workers):
+                size = chunk_size + (1 if i < remainder else 0)
+                device_id = device_ids[i % len(device_ids)]
+                t = threading.Thread(
+                    target=_worker, args=(i, device_id, offset, offset + size)
+                )
+                threads.append(t)
+                t.start()
+                offset += size
+
+            for t in threads:
+                t.join()
+
+            if any(e is not None for e in errors):
+                raise RuntimeError(f"Parallel sampling errors: {errors}")
+
+            # 合并结果
+            return torch.cat(results, dim=0)
+
+        except Exception as e:
+            print(f"[Parallel] Multi-GPU failed, falling back to single GPU: {e}")
+            return dem_sampling(H, p, batch_size, device_id=device_ids[0] if device_ids else None, seed=seed)
+
+    # 多进程并行（CPU fallback）
+    if use_multi_process:
+        try:
+            from multiprocessing import cpu_count
+
+            num_workers = min(num_workers, cpu_count())
+
+            with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                futures = []
+                offset = 0
+                for i in range(num_workers):
+                    size = chunk_size + (1 if i < remainder else 0)
+                    worker_seed = None if seed is None else seed + i * 10000
+
+                    # 需要序列化 H, p 到 CPU
+                    H_cpu = H.cpu() if H.is_cuda else H
+                    p_cpu = p.cpu() if p.is_cuda else p
+
+                    future = executor.submit(
+                        _dem_sampling_cpu_helper,
+                        H_cpu.numpy(), p_cpu.numpy(), size, worker_seed
+                    )
+                    futures.append(future)
+                    offset += size
+
+                results = [f.result() for f in futures]
+                frames = np.vstack(results)
+
+            return torch.as_tensor(frames, dtype=torch.uint8, device=H.device)
+
+        except Exception as e:
+            print(f"[Parallel] Multi-process failed, falling back to single process: {e}")
+            return _dem_sampling_cpu(H, p, batch_size, seed=seed)
+
+    else:
+        # 单 GPU/CPU 路径
+        return dem_sampling(H, p, batch_size, seed=seed)
+
+
+def _dem_sampling_cpu_helper(
+    H_np: np.ndarray, p_np: np.ndarray, batch_size: int, seed: Optional[int] = None
+) -> np.ndarray:
+    """多进程 helper函数（CPU 采样）"""
+    return _dem_sampling_cpu(
+        torch.from_numpy(H_np), torch.from_numpy(p_np), batch_size, seed
+    ).cpu().numpy()

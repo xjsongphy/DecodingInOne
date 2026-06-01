@@ -49,6 +49,15 @@ class IsingDataConfig:
     p_cnot_ZY: float = 0.0002
     p_cnot_ZZ: float = 0.0002
 
+    # 并行采样配置（从 YAML 读取）
+    enable_parallel: bool = False  # 是否启用并行采样
+    num_workers: int = 4             # 并行工作数（GPU 或进程数）
+    parallel_device_ids: Optional[list[int]] = None  # 指定 GPU 设备 ID
+    sampling_chunk_size: int = 16384  # 预采样分块大小；可大于训练 batch_size
+
+    # 数据保存配置
+    save_samples: bool = False  # 是否保存采样数据到本地（方便复用）
+
     def get_rotation(self) -> str:
         """将 basis (O1-O4) 映射到 code_rotation (XV, XH, ZV, ZH)"""
         mapping = {"O1": "XV", "O2": "XH", "O3": "ZV", "O4": "ZH"}
