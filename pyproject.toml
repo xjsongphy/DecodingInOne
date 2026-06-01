@@ -17,11 +17,22 @@ dependencies = [
 cpu = [
     "torch>=2.5,<2.8",
 ]
-cu124 = [
+# Windows CUDA (PyTorch only, cuquantum unavailable on Windows)
+cu124-win = [
     "torch @ https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-win_amd64.whl",
 ]
+# Linux CUDA (PyTorch + cuquantum + cupy for GPU sampling)
+cu124-linux = [
+    "torch>=2.5,<2.8",
+    "cuquantum-cu12>=24.3.0",
+    "cupy-cuda12x>=13.0.0",
+]
 cuda = [
-    "decoding-in-one[cu124]",
+    "decoding-in-one[cu124-win]",
+]
+# Alternative: detect platform automatically
+cuda-auto = [
+    "decoding-in-one[cpu]",  # Fallback to CPU version
 ]
 
 [build-system]

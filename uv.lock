@@ -137,6 +137,109 @@ toml = [
 ]
 
 [[package]]
+name = "cuda-pathfinder"
+version = "1.5.5"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/11/c8/26f2e4aae92f11522a96043892ba39a90eac610d5242523aa863212bc1c7/cuda_pathfinder-1.5.5-py3-none-any.whl", hash = "sha256:0228c023f95d1480f143ef5c8922d27a2ab052087a942e81dc289c9eb8f91689", size = 51671, upload-time = "2026-05-27T01:21:25.413Z" },
+]
+
+[[package]]
+name = "cudensitymat-cu12"
+version = "0.5.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "cutensor-cu12" },
+    { name = "cutensornet-cu12" },
+]
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/18/17/2af6a937b4cec0d4d0f52b0118841a81d9b3a43c945a34cb711fafecaca9/cudensitymat_cu12-0.5.2-py3-none-manylinux2014_aarch64.whl", hash = "sha256:378a90436c3ee13bd55b45d9ced390dd68008e4e722e4c6713432a9b7ef8be88", size = 18701564, upload-time = "2026-04-30T23:56:01.181Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/66/b8/44231de69d6b740acaa1efb4107fc39d41ab081592d50e393c0ea69575d1/cudensitymat_cu12-0.5.2-py3-none-manylinux2014_x86_64.whl", hash = "sha256:c3f7c685da3b77a0df3e94161c1e59904f42eca85d2af77e56d99ac8931236b6", size = 18720020, upload-time = "2026-04-30T23:51:51.541Z" },
+]
+
+[[package]]
+name = "cupauliprop-cu12"
+version = "0.3.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a8/b4/5cb65541e23c3c97a93a807bb4577b36c4639638aa3c37549295d85a8fad/cupauliprop_cu12-0.3.2-py3-none-manylinux2014_aarch64.whl", hash = "sha256:8414a4fb87d5c8066e8e7d82c37dfb3295bfec0552715abc1ceffe743c134d48", size = 62583255, upload-time = "2026-04-30T23:55:03.408Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/66/0f/937f0761d679c0383ee353d88974fc5dc4e874dcd51624d3da838a8dc1ee/cupauliprop_cu12-0.3.2-py3-none-manylinux2014_x86_64.whl", hash = "sha256:878abf853681fe2fb02fcc1a8fbeef19d1999642dbc6294228316b33a5bdb662", size = 62698714, upload-time = "2026-04-30T23:51:02.483Z" },
+]
+
+[[package]]
+name = "cupy-cuda12x"
+version = "14.1.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "cuda-pathfinder" },
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5b/54/6838a3712b7a33c22c7e6b1d29dd724ff3533cd31cb2635103b11d6d21a3/cupy_cuda12x-14.1.0-cp311-cp311-manylinux2014_aarch64.whl", hash = "sha256:287899f37d12a98b0fcfd8bc201fb509b417de5122b17dd2a4ffc436e1bcc7ae", size = 145089357, upload-time = "2026-05-23T01:09:55.137Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3d/c4/0b14b92522ee5e71fc89ce8a6d2a2cd0345c59b0c3aef46c93939d9cfc35/cupy_cuda12x-14.1.0-cp311-cp311-manylinux2014_x86_64.whl", hash = "sha256:5d1d74b51f8b834e0b2bbef17ea556efc2137e0c6b415c8a41ccf2bcbd35a632", size = 134012854, upload-time = "2026-05-23T01:10:00.422Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/44/fa/8191d6b92585c70ed2e91e13fd5ce2b33a779b12455919396b0547964703/cupy_cuda12x-14.1.0-cp311-cp311-win_amd64.whl", hash = "sha256:cf2c10e00ea116ebca9eb9943482a5e6e4879f44d9850cec3e06786f3f63826c", size = 95336866, upload-time = "2026-05-23T01:10:06.343Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c4/11/c8ee77e4f285530527f3c2eb4a0df444056f5bd53451385d04e64d676cb5/cupy_cuda12x-14.1.0-cp312-cp312-manylinux2014_aarch64.whl", hash = "sha256:0ef0fcdfea1a1c650c217f34223553e0914df140d82ecd457c047e849025c21c", size = 144383804, upload-time = "2026-05-23T01:10:11.429Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a4/0b/802bbda4b40957c3c151f8338436bbea225a9bd3290bed5488e32131d641/cupy_cuda12x-14.1.0-cp312-cp312-manylinux2014_x86_64.whl", hash = "sha256:cf33564a11c966de724a45bb84b30ca6fa08d0a3d5696316af230ba4177bfbde", size = 133516920, upload-time = "2026-05-23T01:10:16.586Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/05/2c/e4869255f3d1a153ec3ae815243be1b3c1a7a1d9011cdc3757201b18e032/cupy_cuda12x-14.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:31c388f6b20acc265658363466cf58c5419e0ca47ff54d44d78e6ef6f997d3ac", size = 95238833, upload-time = "2026-05-23T01:10:21.589Z" },
+]
+
+[[package]]
+name = "cuquantum-cu12"
+version = "26.3.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "cudensitymat-cu12" },
+    { name = "cupauliprop-cu12" },
+    { name = "custabilizer-cu12" },
+    { name = "custatevec-cu12" },
+    { name = "cutensornet-cu12" },
+]
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ec/af/608a7f455495f121df4d65a4909f47614a980fc6cdafbf572dee9ba66351/cuquantum_cu12-26.3.2-py3-none-manylinux2014_aarch64.whl", hash = "sha256:c74229ed5831a6ae3d7299383dde2b17177c4a5d98762d6369e015e56b5980d0", size = 7210, upload-time = "2026-04-30T23:53:17.17Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c9/08/5ae2ee840b5082d55a980df011e380cef4eb8ddd5499e25c0476287f8a11/cuquantum_cu12-26.3.2-py3-none-manylinux2014_x86_64.whl", hash = "sha256:252069c6157fecbe0ef8988e8876a8f54ce09b7cfc9bbdcec16b11610a3d3e00", size = 7208, upload-time = "2026-04-30T23:50:37.864Z" },
+]
+
+[[package]]
+name = "custabilizer-cu12"
+version = "0.3.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/44/c0/89314e470f8364ce04c8c00ab5e4d66098c6f65d3f219656b8f26833e226/custabilizer_cu12-0.3.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:a3e4522d0901b8104774c2f96a1117fe9ab1b8ccec3a3a59576f9fa23a408666", size = 7087321, upload-time = "2026-03-30T17:36:22.158Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/21/d6/c5ca3baef11ced94a6f65aad13a51dafc9e9e5eab7a361a885e66c07e032/custabilizer_cu12-0.3.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:00733d0403541e3696ffe0ca82126e982cb48a21766e343c0f1c4647de793789", size = 7073337, upload-time = "2026-03-30T19:58:58.886Z" },
+]
+
+[[package]]
+name = "custatevec-cu12"
+version = "1.13.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/dd/1c/3ca3983b416e9f0f9a4da902d4eb69879969a08bc2db05b4e7854fdd6a61/custatevec_cu12-1.13.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:ee55f85e81cac11c09fbde3b63e64c309279537efbe9fb91b57d5e35cd3b8073", size = 73147948, upload-time = "2026-04-13T18:21:05.772Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/65/c0/4b092e048b44c6658521bbaaca4a08daf964e3a1de1d8fe024c008fa9343/custatevec_cu12-1.13.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:359626fd842e53fa0d84912bd7c6e2a891ac8b6ea3e490479fba73805425a410", size = 73152910, upload-time = "2026-04-13T18:10:34.608Z" },
+]
+
+[[package]]
+name = "cutensor-cu12"
+version = "2.6.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/43/bb/935e85c62ff0f9001ff3d5165daa07258c35848a423c43ae3c0e7d7acf24/cutensor_cu12-2.6.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:99c3f29b4061d097371786cb00d4ca127a731b7568a962d1e069ce11baa8d344", size = 276907216, upload-time = "2026-03-17T09:26:34.7Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/6b/6e/a0b687567c46234354a9978dd6671b1ac362bddc0b0e52e6d0f2df7047f0/cutensor_cu12-2.6.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:c0baefa562c60e39989c5aed3e3f2d2e655d396b2e4788f6fe1b5410e20fef70", size = 277119783, upload-time = "2026-03-17T09:28:43.062Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/68/68/4f03d2a23eba24f3e7f9614251d752591a97c5aff43b83f14b9a4fddd238/cutensor_cu12-2.6.0-py3-none-win_amd64.whl", hash = "sha256:a3a0930362cb4b3ff784163e956b1a557535a2cd6d3f1a1612ad427a988f46e3", size = 260664391, upload-time = "2026-03-17T09:30:49.667Z" },
+]
+
+[[package]]
+name = "cutensornet-cu12"
+version = "2.12.2"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "cutensor-cu12" },
+]
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c6/21/97630117bc5fd72196915f133bd5de3322cccd893d1ee0a468fe8ae105fd/cutensornet_cu12-2.12.2-py3-none-manylinux2014_aarch64.whl", hash = "sha256:e17cb372d7aa21e8998d6623cfa7d2f94dfd5f127eb520e50ebe91768e0e6005", size = 3099322, upload-time = "2026-04-30T23:31:29.515Z" },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/0f/4b/b47dfe6eda899aa252e197bfe9eb2eb25e6a8fa563588591c715faee88e9/cutensornet_cu12-2.12.2-py3-none-manylinux2014_x86_64.whl", hash = "sha256:1f3fe15974c26da60e5310e786badce3cf2cd3331dbaaf032ab5bc4a5ba61323", size = 3174943, upload-time = "2026-04-30T23:30:31.524Z" },
+]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -162,10 +265,18 @@ dependencies = [
 cpu = [
     { name = "torch" },
 ]
-cu124 = [
+cu124-linux = [
+    { name = "cupy-cuda12x" },
+    { name = "cuquantum-cu12" },
+    { name = "torch" },
+]
+cu124-win = [
     { name = "torch" },
 ]
 cuda = [
+    { name = "torch" },
+]
+cuda-auto = [
     { name = "torch" },
 ]
 
@@ -189,17 +300,21 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "decoding-in-one", extras = ["cu124"], marker = "extra == 'cuda'" },
+    { name = "cupy-cuda12x", marker = "extra == 'cu124-linux'", specifier = ">=13.0.0" },
+    { name = "cuquantum-cu12", marker = "extra == 'cu124-linux'", specifier = ">=24.3.0" },
+    { name = "decoding-in-one", extras = ["cpu"], marker = "extra == 'cuda-auto'" },
+    { name = "decoding-in-one", extras = ["cu124-win"], marker = "extra == 'cuda'" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pymatching", specifier = ">=2.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "stim", specifier = ">=1.9.0" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.5,<2.8" },
-    { name = "torch", marker = "extra == 'cu124'", url = "https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-win_amd64.whl" },
+    { name = "torch", marker = "extra == 'cu124-linux'", specifier = ">=2.5,<2.8" },
+    { name = "torch", marker = "extra == 'cu124-win'", url = "https://download.pytorch.org/whl/cu124/torch-2.5.1%2Bcu124-cp312-cp312-win_amd64.whl" },
     { name = "tqdm", specifier = ">=4.65.0" },
 ]
-provides-extras = ["cpu", "cu124", "cuda"]
+provides-extras = ["cpu", "cu124-win", "cu124-linux", "cuda", "cuda-auto"]
 
 [package.metadata.requires-dev]
 cpu = [{ name = "torch", specifier = ">=2.5,<2.8" }]
