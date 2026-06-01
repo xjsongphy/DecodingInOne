@@ -1,0 +1,81 @@
+# Ising 训练实验配置 - GNN 解码器
+# 基于 ising_train.yaml，使用 GNN 解码器替代 Conv3D
+
+# 数据生成配置（与 Conv3D 版本相同）
+distance: 9
+rounds: 9
+basis: O1  # O1, O2, O3, O4 (对应 Ising-Decoding 的 code_rotation)
+train_shots: 2000000  # 200 万训练样本
+val_shots: 500000      # 50 万验证样本
+precomputed_frames_dir: null  # 可选：预计算 DEM 目录（null = 自动从 Stim 电路提取）
+
+# 噪声模型配置（25 参数电路级噪声，接近表面码阈值）
+# 有效噪声率约 0.006（接近阈值 ~0.0075）
+# 态制备错误（2）
+p_prep_X: 0.004
+p_prep_Z: 0.004
+# 测量错误（2）
+p_meas_X: 0.004
+p_meas_Z: 0.004
+# CNOT 层空闲错误（3）
+p_idle_cnot_X: 0.002
+p_idle_cnot_Y: 0.002
+p_idle_cnot_Z: 0.002
+# SPAM 窗口空闲错误（3）
+p_idle_spam_X: 0.003992
+p_idle_spam_Y: 0.003992
+p_idle_spam_Z: 0.003992
+# CNOT 两比特错误（15）
+p_cnot_IX: 0.0004
+p_cnot_IY: 0.0004
+p_cnot_IZ: 0.0004
+p_cnot_XI: 0.0004
+p_cnot_XX: 0.0004
+p_cnot_XY: 0.0004
+p_cnot_XZ: 0.0004
+p_cnot_YI: 0.0004
+p_cnot_YX: 0.0004
+p_cnot_YY: 0.0004
+p_cnot_YZ: 0.0004
+p_cnot_ZI: 0.0004
+p_cnot_ZX: 0.0004
+p_cnot_ZY: 0.0004
+p_cnot_ZZ: 0.0004
+
+# 并行采样配置
+enable_parallel: true
+num_workers: 8
+parallel_device_ids: null
+sampling_chunk_size: 16384
+
+# 数据保存配置
+save_samples: true
+
+# ============ GNN 模型结构配置 ============
+# 与 Conv3D 参数量相当的设计：
+# - Conv3D: 4层×128通道 → ~1.35M 参数
+# - GNN: 8层×256通道×8头 → ~1.32M 参数
+
+# GNN 层配置
+layer_type: GAT          # 'GCN' 或 'GAT' (推荐 GAT)
+num_layers: 8             # GNN 层数（更深以匹配参数量）
+hidden_channels: 256      # 隐藏维度（与 Conv3D 宽度相当）
+attention_heads: 8        # 注意力头数（增加以提升表达能力）
+dropout: 0.1              # Dropout 概率
+
+# 图结构配置
+use_temporal_edges: true  # 使用时间边（连接不同时间步的同一检测器）
+
+# 读出层配置
+readout_hidden: 512       # 读出层隐藏维度（增加以匹配参数量）
+readout_layers: 3          # 读出层数（增加以匹配参数量）
+output_channels: 4        # 输出通道数（z_err, x_err, s1x, s1z）
+
+# 训练优化配置（与 Conv3D 版本相同）
+batch_size: 1024
+epochs: 64
+lr: 0.001
+weight_decay: 0.00001
+device: auto
+seed: 0
+out_dir: outputs/ising_gnn  # GNN 输出目录
