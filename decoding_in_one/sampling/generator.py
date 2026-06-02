@@ -21,7 +21,7 @@ import stim
 import torch
 
 from decoding_in_one.sampling.dem import dem_sampling, dem_sampling_parallel
-from decoding_in_one.surface_code.data_mapping import (
+from decoding_in_one.codes.surface_code.data_mapping import (
     normalized_weight_mapping_Xstab_memory,
     normalized_weight_mapping_Zstab_memory,
 )
