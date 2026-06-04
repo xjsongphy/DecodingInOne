@@ -1,69 +1,75 @@
-# Ising 训练实验配置
-# 完全独立运行，不依赖外部 Ising-Decoding 文件
+# Ising-style training config aligned to Ising-Decoding public model_id=1.
+# The only intentional deviation is fewer training samples.
 
-# 数据生成配置
+# Data generation
 distance: 9
 rounds: 9
-basis: O1  # O1, O2, O3, O4 (对应 Ising-Decoding 的 code_rotation)
-train_shots: 2000000  # 增加到 200 万（接近 Ising-Decoding 规模）
-val_shots: 500000      # 增加到 50 万
-precomputed_frames_dir: null  # 可选：预计算 DEM 目录（null = 自动从 Stim 电路提取）
+basis: O1
+train_shots: 2000000
+val_shots: 65536
+precomputed_frames_dir: null
 
-# 噪声模型配置（25 参数电路级噪声，接近表面码阈值）
-# 有效噪声率约 0.006（接近阈值 ~0.0075）
-# 态制备错误（2）
-p_prep_X: 0.004
-p_prep_Z: 0.004
-# 测量错误（2）
-p_meas_X: 0.004
-p_meas_Z: 0.004
-# CNOT 层空闲错误（3）
-p_idle_cnot_X: 0.002
-p_idle_cnot_Y: 0.002
-p_idle_cnot_Z: 0.002
-# SPAM 窗口空闲错误（3）
-p_idle_spam_X: 0.003992
-p_idle_spam_Y: 0.003992
-p_idle_spam_Z: 0.003992
-# CNOT 两比特错误（15）
-p_cnot_IX: 0.0004
-p_cnot_IY: 0.0004
-p_cnot_IZ: 0.0004
-p_cnot_XI: 0.0004
-p_cnot_XX: 0.0004
-p_cnot_XY: 0.0004
-p_cnot_XZ: 0.0004
-p_cnot_YI: 0.0004
-p_cnot_YX: 0.0004
-p_cnot_YY: 0.0004
-p_cnot_YZ: 0.0004
-p_cnot_ZI: 0.0004
-p_cnot_ZX: 0.0004
-p_cnot_ZY: 0.0004
-p_cnot_ZZ: 0.0004
+# 25-parameter circuit-level noise model, matching Ising-Decoding public defaults (p=0.003)
+p_prep_X: 0.002
+p_prep_Z: 0.002
+p_meas_X: 0.002
+p_meas_Z: 0.002
+p_idle_cnot_X: 0.001
+p_idle_cnot_Y: 0.001
+p_idle_cnot_Z: 0.001
+p_idle_spam_X: 0.001996
+p_idle_spam_Y: 0.001996
+p_idle_spam_Z: 0.001996
+p_cnot_IX: 0.0002
+p_cnot_IY: 0.0002
+p_cnot_IZ: 0.0002
+p_cnot_XI: 0.0002
+p_cnot_XX: 0.0002
+p_cnot_XY: 0.0002
+p_cnot_XZ: 0.0002
+p_cnot_YI: 0.0002
+p_cnot_YX: 0.0002
+p_cnot_YY: 0.0002
+p_cnot_YZ: 0.0002
+p_cnot_ZI: 0.0002
+p_cnot_ZX: 0.0002
+p_cnot_ZY: 0.0002
+p_cnot_ZZ: 0.0002
 
-# 并行采样配置（可选，默认关闭）
-enable_parallel: true  # 是否启用并行采样（需要多 GPU 或多核 CPU）
-num_workers: 8         # 并行工作数（GPU 数量或 CPU 进程数）
-parallel_device_ids: null  # 指定使用的 GPU 设备 ID（null = 自动检测）
-sampling_chunk_size: 16384  # 预采样分块大小；大于 10000 才会触发并行采样分支
+# Sampling
+enable_parallel: true
+num_workers: 8
+parallel_device_ids: null
+sampling_chunk_size: 16384
+save_samples: true
 
-# 数据保存配置
-save_samples: true  # 保存采样数据到本地（方便复用，节省重复采样时间）
-
-# 模型结构配置（增大以接近 Ising-Decoding 规模）
+# Model architecture, matching public model_id=1
 input_channels: 4
 out_channels: 4
-num_filters: [128, 128, 128, 128, 4]  # 增加深度和宽度
-kernel_sizes: [3, 3, 3, 3, 3]
+num_filters: [128, 128, 128, 4]
+kernel_sizes: [3, 3, 3, 3]
 activation: gelu
-dropout: 0.1
+dropout: 0.05
 
-# 训练优化配置
-batch_size: 1024
-epochs: 64
-lr: 0.001
-weight_decay: 0.00001
+# Training hyperparameters, matching public model_id=1
+batch_size: 512
+val_batch_size: 2048
+epochs: 100
+lr: 0.0003
+weight_decay: 0.0000001
+optimizer_type: Lion
+beta2: 0.95
+accumulate_steps: 2
+lr_scheduler_type: warmup_then_decay
+warmup_steps: 100
+lr_milestones: [0.25, 0.5, 1.0]
+lr_gamma: 0.7
+min_lr: 0.000001
+batch_schedule_enabled: true
+batch_size_initial: 512
+batch_size_final: 2048
+batch_schedule_start_epoch: 0
+batch_schedule_end_epoch: 0
 device: auto
 seed: 0
-out_dir: outputs/ising  # 基础目录（时间戳会自动添加）
+out_dir: outputs/ising
