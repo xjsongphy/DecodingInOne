@@ -51,6 +51,10 @@ class MemmapDataset(Dataset):
         return x, y
 
 
+DATA_CONFIG_FILENAME = "data_config.json"
+DATA_INFO_FILENAME = "dataset_info.json"
+
+
 def _load_config(config_path: str | None) -> ExperimentConfig:
     if not config_path:
         return ExperimentConfig(
@@ -87,6 +91,194 @@ def _basis_to_circuit_basis(basis: str) -> str:
     if b in ("O3", "O4", "Z"):
         return "Z"
     raise ValueError(f"basis must be O1-O4 or X/Z, got {basis}")
+
+
+def _canonical_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False)
+
+
+def _normalize_optional_path(path_str: str | None) -> str | None:
+    if not path_str:
+        return None
+    return str(Path(path_str).expanduser().resolve())
+
+
+def _build_data_cache_config(
+    data_cfg: IsingDataConfig,
+    noise_model: NoiseModel,
+    *,
+    seed: int,
+) -> dict[str, Any]:
+    return {
+        "format_version": 1,
+        "code_type": "surface_code",
+        "distance": int(data_cfg.distance),
+        "rounds": int(data_cfg.rounds),
+        "basis": data_cfg.basis.upper(),
+        "rotation": data_cfg.get_rotation(),
+        "circuit_basis": _basis_to_circuit_basis(data_cfg.basis),
+        "train_shots": int(data_cfg.train_shots),
+        "val_shots": int(data_cfg.val_shots),
+        "train_seed": int(seed),
+        "val_seed": int(seed + 1_000_000),
+        "precomputed_frames_dir": _normalize_optional_path(data_cfg.precomputed_frames_dir),
+        "noise_model_path": _normalize_optional_path(data_cfg.noise_model_path),
+        "noise_model": noise_model.canonical_parameters(),
+    }
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _dataset_files_exist(dataset_dir: Path) -> bool:
+    required = ["trainX.npy", "trainY.npy", "valX.npy", "valY.npy", DATA_CONFIG_FILENAME]
+    return all((dataset_dir / name).exists() for name in required)
+
+
+def _find_matching_dataset_dir(cache_root: Path, expected_config: dict[str, Any]) -> Path | None:
+    if not cache_root.exists():
+        return None
+
+    expected_json = _canonical_json(expected_config)
+    candidates = sorted((p for p in cache_root.iterdir() if p.is_dir()), reverse=True)
+    for dataset_dir in candidates:
+        if not _dataset_files_exist(dataset_dir):
+            continue
+        cached_config = _read_json(dataset_dir / DATA_CONFIG_FILENAME)
+        if cached_config is None:
+            continue
+        if _canonical_json(cached_config) == expected_json:
+            return dataset_dir
+    return None
+
+
+def _create_dataset_dir(cache_root: Path) -> Path:
+    cache_root.mkdir(parents=True, exist_ok=True)
+    while True:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dataset_dir = cache_root / timestamp
+        if not dataset_dir.exists():
+            dataset_dir.mkdir(parents=True, exist_ok=False)
+            return dataset_dir
+
+
+def _write_dataset_metadata(
+    dataset_dir: Path,
+    *,
+    data_config: dict[str, Any],
+    input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
+) -> None:
+    (dataset_dir / DATA_CONFIG_FILENAME).write_text(
+        _canonical_json(data_config),
+        encoding="utf-8",
+    )
+    dataset_info = {
+        "input_shape": list(input_shape),
+        "output_shape": list(output_shape),
+        "files": {
+            "train_x": "trainX.npy",
+            "train_y": "trainY.npy",
+            "val_x": "valX.npy",
+            "val_y": "valY.npy",
+        },
+    }
+    (dataset_dir / DATA_INFO_FILENAME).write_text(
+        _canonical_json(dataset_info),
+        encoding="utf-8",
+    )
+
+
+def _prepare_cached_datasets(
+    *,
+    generator: CircuitDataGenerator,
+    data_cfg: IsingDataConfig,
+    training_seed: int,
+    batch_size: int,
+    cache_root: Path,
+    noise_model: NoiseModel,
+) -> tuple[Path, Path, Path, Path, tuple[int, ...], tuple[int, ...], Path, bool]:
+    cache_config = _build_data_cache_config(data_cfg, noise_model, seed=training_seed)
+    matched_dir = _find_matching_dataset_dir(cache_root, cache_config)
+    if matched_dir is not None:
+        print(f"[Train] Reusing cached dataset: {matched_dir}")
+        train_x_path = matched_dir / "trainX.npy"
+        train_y_path = matched_dir / "trainY.npy"
+        val_x_path = matched_dir / "valX.npy"
+        val_y_path = matched_dir / "valY.npy"
+        input_shape = tuple(np.load(train_x_path, mmap_mode="r").shape[1:])
+        output_shape = tuple(np.load(train_y_path, mmap_mode="r").shape[1:])
+        return (
+            train_x_path,
+            train_y_path,
+            val_x_path,
+            val_y_path,
+            input_shape,
+            output_shape,
+            matched_dir,
+            True,
+        )
+
+    dataset_dir = _create_dataset_dir(cache_root)
+    print(f"[Train] No matching cached dataset found; generating into: {dataset_dir}")
+
+    chunk_size = max(int(data_cfg.sampling_chunk_size), int(batch_size))
+    print(
+        f"[Train] Pre-generating datasets in chunks: "
+        f"train_samples={data_cfg.train_shots}, val_samples={data_cfg.val_shots}, "
+        f"chunk_size={chunk_size}"
+    )
+    if data_cfg.enable_parallel:
+        print(
+            f"[Train] Parallel sampling requested: workers={data_cfg.num_workers}, "
+            f"chunk_size={chunk_size}"
+        )
+
+    train_x_path = dataset_dir / "trainX.npy"
+    train_y_path = dataset_dir / "trainY.npy"
+    val_x_path = dataset_dir / "valX.npy"
+    val_y_path = dataset_dir / "valY.npy"
+
+    train_x_path, train_y_path, input_shape, output_shape = _pregenerate_to_memmap(
+        generator=generator,
+        total_samples=data_cfg.train_shots,
+        chunk_size=chunk_size,
+        seed_base=training_seed,
+        out_x=train_x_path,
+        out_y=train_y_path,
+        label="train",
+    )
+    _pregenerate_to_memmap(
+        generator=generator,
+        total_samples=data_cfg.val_shots,
+        chunk_size=chunk_size,
+        seed_base=training_seed + 1_000_000,
+        out_x=val_x_path,
+        out_y=val_y_path,
+        label="val",
+    )
+    _write_dataset_metadata(
+        dataset_dir,
+        data_config=cache_config,
+        input_shape=input_shape,
+        output_shape=output_shape,
+    )
+    return (
+        train_x_path,
+        train_y_path,
+        val_x_path,
+        val_y_path,
+        input_shape,
+        output_shape,
+        dataset_dir,
+        False,
+    )
 
 
 def _pregenerate_to_memmap(
@@ -198,50 +390,32 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
 
     if not use_precomputed:
         print("[Train] DEM extracted from Stim circuit (no external dependency)")
-
-    chunk_size = max(int(data_cfg.sampling_chunk_size), int(cfg.training.batch_size))
-    print(
-        f"[Train] Pre-generating datasets in chunks: "
-        f"train_samples={data_cfg.train_shots}, val_samples={data_cfg.val_shots}, "
-        f"chunk_size={chunk_size}"
-    )
-    if data_cfg.enable_parallel:
-        print(
-            f"[Train] Parallel sampling requested: workers={data_cfg.num_workers}, "
-            f"chunk_size={chunk_size}"
-        )
-
-    train_x_path = run_dir / "trainX.npy"
-    train_y_path = run_dir / "trainY.npy"
-    val_x_path = run_dir / "valX.npy"
-    val_y_path = run_dir / "valY.npy"
-
-    train_x_path, train_y_path, input_shape, output_shape = _pregenerate_to_memmap(
+    data_cache_root = Path(cfg.training.out_dir) / "data"
+    print(f"[Train] Dataset cache root: {data_cache_root}")
+    (
+        train_x_path,
+        train_y_path,
+        val_x_path,
+        val_y_path,
+        input_shape,
+        output_shape,
+        dataset_dir,
+        reused_dataset,
+    ) = _prepare_cached_datasets(
         generator=generator,
-        total_samples=data_cfg.train_shots,
-        chunk_size=chunk_size,
-        seed_base=cfg.training.seed,
-        out_x=train_x_path,
-        out_y=train_y_path,
-        label="train",
+        data_cfg=data_cfg,
+        training_seed=cfg.training.seed,
+        batch_size=cfg.training.batch_size,
+        cache_root=data_cache_root,
+        noise_model=noise_model,
     )
-    _pregenerate_to_memmap(
-        generator=generator,
-        total_samples=data_cfg.val_shots,
-        chunk_size=chunk_size,
-        seed_base=cfg.training.seed + 1_000_000,
-        out_x=val_x_path,
-        out_y=val_y_path,
-        label="val",
-    )
-
     if not data_cfg.save_samples:
-        print("[Train] Samples are stored as temporary memmaps for this run")
+        print("[Train] save_samples=false is ignored because dataset caching is always enabled")
 
     train_ds = MemmapDataset(train_x_path, train_y_path)
     val_ds = MemmapDataset(val_x_path, val_y_path)
     train_loader = DataLoader(train_ds, batch_size=cfg.training.batch_size, shuffle=True, drop_last=False)
-    val_loader = DataLoader(val_ds, batch_size=cfg.training.batch_size, shuffle=False, drop_last=False)
+    val_loader = DataLoader(val_ds, batch_size=cfg.training.val_batch_size, shuffle=False, drop_last=False)
 
     model = SurfaceCodeConv3DDecoder(cfg.model)
     trainer = Trainer(model, cfg.training)
@@ -255,6 +429,8 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
         "output_shape": list(output_shape),
     }
     report["architecture"] = "ising_decoding"
+    report["dataset_dir"] = str(dataset_dir)
+    report["dataset_reused"] = reused_dataset
 
     (run_dir / "full_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
