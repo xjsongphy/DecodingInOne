@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import stim
 import torch
 import yaml
 from torch.utils.data import DataLoader, Dataset
@@ -90,7 +91,9 @@ def _basis_to_circuit_basis(basis: str) -> str:
         return "X"
     if b in ("O3", "O4", "Z"):
         return "Z"
-    raise ValueError(f"basis must be O1-O4 or X/Z, got {basis}")
+    if b in ("BOTH", "MIXED"):
+        return "both"
+    raise ValueError(f"basis must be O1-O4, X, Z, both, or mixed, got {basis}")
 
 
 def _canonical_json(payload: dict[str, Any]) -> str:
@@ -110,11 +113,13 @@ def _build_data_cache_config(
     seed: int,
 ) -> dict[str, Any]:
     return {
-        "format_version": 1,
+        "format_version": 2,
+        "data_semantics": "ising_frame_predecoder_he_v1",
         "code_type": "surface_code",
         "distance": int(data_cfg.distance),
         "rounds": int(data_cfg.rounds),
         "basis": data_cfg.basis.upper(),
+        "measurement_basis": data_cfg.get_measurement_basis().upper(),
         "rotation": data_cfg.get_rotation(),
         "circuit_basis": _basis_to_circuit_basis(data_cfg.basis),
         "train_shots": int(data_cfg.train_shots),
@@ -122,6 +127,7 @@ def _build_data_cache_config(
         "train_seed": int(seed),
         "val_seed": int(seed + 1_000_000),
         "precomputed_frames_dir": _normalize_optional_path(data_cfg.precomputed_frames_dir),
+        "allow_stim_dem_extraction": bool(data_cfg.allow_stim_dem_extraction),
         "noise_model_path": _normalize_optional_path(data_cfg.noise_model_path),
         "noise_model": noise_model.canonical_parameters(),
     }
@@ -200,7 +206,8 @@ def _prepare_cached_datasets(
     generator: CircuitDataGenerator,
     data_cfg: IsingDataConfig,
     training_seed: int,
-    batch_size: int,
+    train_batch_size: int,
+    val_batch_size: int,
     cache_root: Path,
     noise_model: NoiseModel,
 ) -> tuple[Path, Path, Path, Path, tuple[int, ...], tuple[int, ...], Path, bool]:
@@ -228,7 +235,11 @@ def _prepare_cached_datasets(
     dataset_dir = _create_dataset_dir(cache_root)
     print(f"[Train] No matching cached dataset found; generating into: {dataset_dir}")
 
-    chunk_size = max(int(data_cfg.sampling_chunk_size), int(batch_size))
+    chunk_size = max(
+        int(data_cfg.sampling_chunk_size),
+        int(train_batch_size),
+        int(val_batch_size),
+    )
     print(
         f"[Train] Pre-generating datasets in chunks: "
         f"train_samples={data_cfg.train_shots}, val_samples={data_cfg.val_shots}, "
@@ -249,6 +260,7 @@ def _prepare_cached_datasets(
         generator=generator,
         total_samples=data_cfg.train_shots,
         chunk_size=chunk_size,
+        generation_batch_size=int(train_batch_size),
         seed_base=training_seed,
         out_x=train_x_path,
         out_y=train_y_path,
@@ -258,6 +270,7 @@ def _prepare_cached_datasets(
         generator=generator,
         total_samples=data_cfg.val_shots,
         chunk_size=chunk_size,
+        generation_batch_size=int(val_batch_size),
         seed_base=training_seed + 1_000_000,
         out_x=val_x_path,
         out_y=val_y_path,
@@ -286,15 +299,17 @@ def _pregenerate_to_memmap(
     generator: CircuitDataGenerator,
     total_samples: int,
     chunk_size: int,
+    generation_batch_size: int,
     seed_base: int,
     out_x: Path,
     out_y: Path,
     label: str,
 ) -> tuple[Path, Path, tuple[int, ...], tuple[int, ...]]:
     probe = generator.generate_batch(
-        batch_size=min(chunk_size, total_samples, 4),
+        batch_size=min(generation_batch_size, total_samples, 4),
         seed=seed_base,
         keep_on_cpu=True,
+        step=0,
     )
     sample_x = probe["trainX"].cpu().numpy().astype(np.float16, copy=False)
     sample_y = probe["trainY"].cpu().numpy().astype(np.float16, copy=False)
@@ -306,31 +321,59 @@ def _pregenerate_to_memmap(
 
     written = 0
     chunk_idx = 0
+    global_step = 0
     num_chunks = math.ceil(total_samples / chunk_size)
     pbar = tqdm(total=total_samples, desc=f"Sampling {label}", unit="samples", leave=True)
     while written < total_samples:
         current = min(chunk_size, total_samples - written)
-        batch = generator.generate_batch(
-            batch_size=current,
-            seed=seed_base + chunk_idx,
-            keep_on_cpu=True,
-            verbose=False,  # 由 tqdm 进度条管理输出
-        )
-        batch_x = batch["trainX"].cpu().numpy().astype(np.float16, copy=False)
-        batch_y = batch["trainY"].cpu().numpy().astype(np.float16, copy=False)
-        x_mm[written:written + current] = batch_x
-        y_mm[written:written + current] = batch_y
+        chunk_written = 0
+        while chunk_written < current:
+            sub_batch = min(int(generation_batch_size), current - chunk_written)
+            batch = generator.generate_batch(
+                batch_size=sub_batch,
+                seed=seed_base + global_step,
+                keep_on_cpu=True,
+                verbose=False,
+                step=global_step,
+            )
+            batch_x = batch["trainX"].cpu().numpy().astype(np.float16, copy=False)
+            batch_y = batch["trainY"].cpu().numpy().astype(np.float16, copy=False)
+            start = written + chunk_written
+            stop = start + sub_batch
+            x_mm[start:stop] = batch_x
+            y_mm[start:stop] = batch_y
+            chunk_written += sub_batch
+            global_step += 1
+            pbar.update(sub_batch)
         written += current
         chunk_idx += 1
         x_mm.flush()
         y_mm.flush()
-        pbar.update(current)
         pbar.set_postfix({"chunk": f"{chunk_idx}/{num_chunks}"})
 
     pbar.close()
     del x_mm
     del y_mm
     return out_x, out_y, x_shape[1:], y_shape[1:]
+
+
+def _build_stim_circuit(
+    *,
+    code: SurfaceCode,
+    n_rounds: int,
+    basis: str,
+    noise_model: NoiseModel,
+) -> stim.Circuit:
+    mem_circuit = MemoryCircuit(
+        code=code,
+        n_rounds=n_rounds,
+        basis=basis,
+        noise_model=noise_model,
+    )
+    print(f"[Train] MemoryCircuit[{basis}] built: {len(mem_circuit.circuit)} chars")
+    stim_circuit = mem_circuit.compile_to_stim()
+    print(f"[Train] Stim circuit[{basis}] compiled: {len(stim_circuit)} instructions")
+    return stim_circuit
 
 
 def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
@@ -344,27 +387,59 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
 
     data_cfg = cfg.data
     rotation = data_cfg.get_rotation()
+    measurement_basis = data_cfg.get_measurement_basis()
     circuit_basis = _basis_to_circuit_basis(data_cfg.basis)
+    mixed_basis = circuit_basis == "both"
 
     code = SurfaceCode(distance=data_cfg.distance, rotation=rotation)
     noise_model = _build_noise_model(data_cfg)
-    print(f"[Train] QuantumCode: SurfaceCode(distance={data_cfg.distance}, rotation={rotation})")
-    print(f"[Train] NoiseModel: {noise_model}")
-
-    mem_circuit = MemoryCircuit(
-        code=code,
-        n_rounds=data_cfg.rounds,
-        basis=circuit_basis,
-        noise_model=noise_model,
+    print(
+        f"[Train] QuantumCode: SurfaceCode(distance={data_cfg.distance}, "
+        f"rotation={rotation}, basis={measurement_basis})"
     )
-    print(f"[Train] MemoryCircuit built: {len(mem_circuit.circuit)} chars")
-
-    stim_circuit = mem_circuit.compile_to_stim()
-    print(f"[Train] Stim circuit compiled: {len(stim_circuit)} instructions")
+    print(f"[Train] NoiseModel: {noise_model}")
 
     use_precomputed = data_cfg.precomputed_frames_dir is not None
     if use_precomputed:
         print(f"[Train] Using precomputed DEM from: {data_cfg.precomputed_frames_dir}")
+    elif not data_cfg.allow_stim_dem_extraction:
+        raise ValueError(
+            "Ising-style training requires precomputed frame_predecoder DEM artifacts. "
+            "Set data.precomputed_frames_dir (or precomputed_frames_dir in YAML) to the "
+            "Ising-compatible bundle. Stim DEM extraction remains available only as an "
+            "explicit debugging fallback via allow_stim_dem_extraction=true."
+        )
+    else:
+        print(
+            "[Train] Warning: using Stim-extracted DEM fallback. This path is useful for "
+            "debugging only and does not reproduce Ising-Decoding training semantics."
+        )
+
+    stim_circuit: stim.Circuit | dict[str, stim.Circuit] | None = None
+    if use_precomputed:
+        print("[Train] Skipping Stim DEM extraction because precomputed artifacts are provided")
+    elif mixed_basis:
+        stim_circuit = {
+            "X": _build_stim_circuit(
+                code=code,
+                n_rounds=data_cfg.rounds,
+                basis="X",
+                noise_model=noise_model,
+            ),
+            "Z": _build_stim_circuit(
+                code=code,
+                n_rounds=data_cfg.rounds,
+                basis="Z",
+                noise_model=noise_model,
+            ),
+        }
+    else:
+        stim_circuit = _build_stim_circuit(
+            code=code,
+            n_rounds=data_cfg.rounds,
+            basis=circuit_basis,
+            noise_model=noise_model,
+        )
 
     sampling_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if sampling_device.type == "cuda":
@@ -380,7 +455,7 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
         basis=circuit_basis,
         code_rotation=rotation,
         stim_circuit=stim_circuit,
-        allow_stim_dem_extraction=True,
+        allow_stim_dem_extraction=data_cfg.allow_stim_dem_extraction,
         precomputed_frames_dir=data_cfg.precomputed_frames_dir if use_precomputed else None,
         enable_parallel=data_cfg.enable_parallel,
         num_workers=data_cfg.num_workers,
@@ -388,8 +463,9 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
         device=sampling_device,
     )
 
-    if not use_precomputed:
-        print("[Train] DEM extracted from Stim circuit (no external dependency)")
+    if not use_precomputed and data_cfg.allow_stim_dem_extraction:
+        print("[Train] DEM extracted from Stim circuit (debug fallback path)")
+
     data_cache_root = Path(cfg.training.out_dir) / "data"
     print(f"[Train] Dataset cache root: {data_cache_root}")
     (
@@ -405,7 +481,8 @@ def run_training(cfg: ExperimentConfig) -> dict[str, Any]:
         generator=generator,
         data_cfg=data_cfg,
         training_seed=cfg.training.seed,
-        batch_size=cfg.training.batch_size,
+        train_batch_size=cfg.training.batch_size,
+        val_batch_size=cfg.training.val_batch_size,
         cache_root=data_cache_root,
         noise_model=noise_model,
     )
@@ -446,6 +523,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--distance", type=int)
     p.add_argument("--rounds", type=int)
     p.add_argument("--basis", type=str)
+    p.add_argument("--rotation", type=str)
     p.add_argument("--train-shots", type=int)
     p.add_argument("--val-shots", type=int)
     p.add_argument("--epochs", type=int)
@@ -463,6 +541,8 @@ def _override_config(cfg: ExperimentConfig, args: argparse.Namespace) -> Experim
         cfg.data.rounds = args.rounds
     if args.basis is not None:
         cfg.data.basis = args.basis
+    if args.rotation is not None:
+        cfg.data.rotation = args.rotation
     if args.train_shots is not None:
         cfg.data.train_shots = args.train_shots
     if args.val_shots is not None:

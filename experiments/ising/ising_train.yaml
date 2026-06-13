@@ -1,13 +1,16 @@
 # Ising-style training config aligned to Ising-Decoding public model_id=1.
-# The only intentional deviation is fewer training samples.
+# DecodingInOne now supports mixed-basis training when basis=both and rotation
+# is set explicitly.
 
 # Data generation
 distance: 9
 rounds: 9
-basis: O1
+basis: both
+rotation: XV
 train_shots: 2000000
 val_shots: 65536
-precomputed_frames_dir: null
+precomputed_frames_dir: D:/Develop/DecodingInOne/artifacts/ising_d9_r9_o1
+allow_stim_dem_extraction: false
 
 # 25-parameter circuit-level noise model, matching Ising-Decoding public defaults (p=0.003)
 p_prep_X: 0.002

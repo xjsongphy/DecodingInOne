@@ -30,3 +30,36 @@ def test_qubit_topology_complete():
     assert len(topology) == 9
     assert topology[0] == (0, 0)
     assert topology[8] == (2, 2)
+
+
+@pytest.mark.parametrize(
+    ("rotation", "expected_x", "expected_z"),
+    [
+        (
+            "XV",
+            [[1, 4, 0, 3], [-1, -1, 2, 5], [3, 6, -1, -1], [5, 8, 4, 7]],
+            [[-1, -1, 1, 0], [4, 3, 7, 6], [2, 1, 5, 4], [8, 7, -1, -1]],
+        ),
+        (
+            "XH",
+            [[-1, -1, 2, 1], [1, 0, 4, 3], [5, 4, 8, 7], [7, 6, -1, -1]],
+            [[0, 3, -1, -1], [4, 7, 3, 6], [2, 5, 1, 4], [-1, -1, 5, 8]],
+        ),
+        (
+            "ZV",
+            [[-1, -1, 1, 0], [2, 1, 5, 4], [4, 3, 7, 6], [8, 7, -1, -1]],
+            [[3, 6, -1, -1], [1, 4, 0, 3], [5, 8, 4, 7], [-1, -1, 2, 5]],
+        ),
+        (
+            "ZH",
+            [[0, 3, -1, -1], [2, 5, 1, 4], [4, 7, 3, 6], [-1, -1, 5, 8]],
+            [[1, 0, 4, 3], [7, 6, -1, -1], [-1, -1, 2, 1], [5, 4, 8, 7]],
+        ),
+    ],
+)
+def test_surface_code_matches_expected_plaquette_order(rotation, expected_x, expected_z):
+    code = SurfaceCode(distance=3, rotation=rotation)
+    actual_x = [code.xcheck_qubits_dict[q]["plaquette"]["qubit_id"] for q in code.get_check_qubits("X")]
+    actual_z = [code.zcheck_qubits_dict[q]["plaquette"]["qubit_id"] for q in code.get_check_qubits("Z")]
+    assert actual_x == expected_x
+    assert actual_z == expected_z

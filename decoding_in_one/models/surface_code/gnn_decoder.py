@@ -101,70 +101,119 @@ class SurfaceCodeGNNDecoder(DecodingModel):
         batch_size = x.size(0)
         device = x.device
 
-        # 1. 构建图结构（对每个样本独立构建）
-        # 为简化，先对第一个样本构建，然后批量处理
-        # TODO: 实现高效的批量图构建
+        # 构建图结构（与样本无关的拓扑结构）
         graph = build_syndrome_graph(x[0:1], distance, n_rounds)
-
-        # 2. GNN 消息传递
-        # graph.x 是 (B, N, F)，需要 squeeze 为 (N, F) 用于 GNN 层
-        node_features = graph.x.squeeze(0)  # (N, node_features)
         edge_index = graph.edge_index  # (2, E)
 
-        for layer in self.gnn_layers:
-            if isinstance(layer, nn.Dropout):
-                node_features = layer(node_features)
-            else:
-                node_features = layer(node_features, edge_index)
+        # 对 batch 中每个样本独立处理
+        outputs = []
+        for b in range(batch_size):
+            # 提取第 b 个样本的节点特征
+            # graph_builder 返回 (B=1, N, 4)，这里直接从 syndrome 构建节点特征
+            node_features = self._extract_node_features(
+                x[b:b+1], distance, n_rounds, device
+            )  # (N, 4)
 
-        # 3. 读出：节点特征 → 预测
-        predictions = self.readout(node_features)  # (N, 4)
+            # GNN 消息传递
+            for layer in self.gnn_layers:
+                if isinstance(layer, nn.Dropout):
+                    node_features = layer(node_features)
+                else:
+                    node_features = layer(node_features, edge_index)
 
-        # 4. 重塑回 (B, 4, T, D, D) 格式
-        # 需要按照节点类型和位置重新组织
-        # 简化实现：这里只处理单个样本的情况
-        output = self._reshape_to_output(predictions, distance, n_rounds)
+            # 读出：节点特征 → 预测
+            predictions = self.readout(node_features)  # (N, 4)
 
-        # 扩展到 batch
-        if batch_size > 1:
-            output = output.expand(batch_size, -1, -1, -1, -1)
+            # 重塑回 (1, 4, T, D, D) 格式
+            output = self._reshape_to_output(predictions, distance, n_rounds, device)
+            outputs.append(output)
 
-        return output
+        return torch.cat(outputs, dim=0)  # (B, 4, T, D, D)
 
-    def _reshape_to_output(self, node_features: torch.Tensor, distance: int, n_rounds: int) -> torch.Tensor:
+    def _extract_node_features(
+        self,
+        syndrome: torch.Tensor,
+        distance: int,
+        n_rounds: int,
+        device: torch.device,
+    ) -> torch.Tensor:
         """
-        将节点特征重塑回 (1, 4, T, D, D) 格式
+        从 syndrome 张量提取节点特征（与图构建器的节点排列一致）。
 
         Args:
-            node_features: (N, 4) 节点特征
+            syndrome: (1, 4, T, D, D)
             distance: 码距
             n_rounds: 时间步数
+            device: 设备
+
+        Returns:
+            (N, node_features) 节点特征
+        """
+        # 使用 graph_builder 来构建节点特征
+        graph = self.graph_builder.build_graph(syndrome, distance, n_rounds)
+        # graph.x 是 (1, N, 4)，squeeze 为 (N, 4)
+        return graph.x.squeeze(0)
+
+    def _reshape_to_output(
+        self,
+        node_features: torch.Tensor,
+        distance: int,
+        n_rounds: int,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """
+        将节点特征重塑回 (1, 4, T, D, D) 格式。
+
+        输出 4 个通道：[z_err, x_err, s1x, s1z]
+        与 Ising-Decoding 的 trainY 格式一致。
+
+        Args:
+            node_features: (N, 4) 节点特征（4 = output_channels）
+            distance: 码距
+            n_rounds: 时间步数
+            device: 设备
 
         Returns:
             (1, 4, T, D, D) 输出张量
         """
-        # 简化实现：直接使用检测器节点特征
-        # 实际实现需要根据节点类型和位置正确映射
-
         n_detectors_per_type = (distance - 1) ** 2
         n_detector_nodes = n_detectors_per_type * 2 * n_rounds
+        n_data_nodes = distance ** 2
 
-        # 只取检测器节点特征
+        # 初始化输出
+        output = torch.zeros(1, 4, n_rounds, distance, distance, device=device)
+
+        # ---- 检测器节点 → s1x, s1z 通道 ----
+        # 节点排列: [t0_x_dets, t0_z_dets, t1_x_dets, t1_z_dets, ...]
+        # 每个时间步: X 检测器 (n_detectors_per_type) + Z 检测器 (n_detectors_per_type)
         det_features = node_features[:n_detector_nodes]  # (N_det, 4)
 
-        # 重塑为 (T, 2, D-1, D-1, 4)
-        det_features = det_features.reshape(n_rounds, 2, distance - 1, distance - 1, 4)
+        for t in range(n_rounds):
+            det_offset = t * n_detectors_per_type * 2
 
-        # 分离 X 和 Z 特征
-        x_features = det_features[:, 0]  # (T, D-1, D-1, 4)
-        z_features = det_features[:, 1]  # (T, D-1, D-1, 4)
+            # X 检测器 → s1x 通道 (channel 2)
+            x_det_feat = det_features[det_offset:det_offset + n_detectors_per_type]  # ((D-1)^2, 4)
+            x_det_reshaped = x_det_feat[:, 2].reshape(distance - 1, distance - 1)
+            output[0, 2, t, 1:distance, 1:distance] = x_det_reshaped
 
-        # 扩展到完整网格（填充边界）
-        output = torch.zeros(1, 4, n_rounds, distance, distance, device=node_features.device)
+            # Z 检测器 → s1z 通道 (channel 3)
+            z_det_feat = det_features[
+                det_offset + n_detectors_per_type:det_offset + n_detectors_per_type * 2
+            ]  # ((D-1)^2, 4)
+            z_det_reshaped = z_det_feat[:, 3].reshape(distance - 1, distance - 1)
+            output[0, 3, t, 1:distance, 1:distance] = z_det_reshaped
 
-        # 填充内部区域
-        output[0, 0, :, 1:distance, 1:distance] = x_features[:, :, 0]  # channel 0: z_err from x_syn
-        output[0, 1, :, 1:distance, 1:distance] = z_features[:, :, 1]  # channel 1: x_err from z_syn
+        # ---- 数据比特节点 → z_err, x_err 通道 ----
+        # 数据节点在检测器节点之后
+        data_features = node_features[n_detector_nodes:n_detector_nodes + n_data_nodes]  # (D^2, 4)
+
+        for t in range(n_rounds):
+            # z_err (channel 0) 和 x_err (channel 1) 从数据节点的读出获取
+            # 使用数据节点的 channel 0 → z_err, channel 1 → x_err
+            z_err = data_features[:, 0].reshape(distance, distance)
+            x_err = data_features[:, 1].reshape(distance, distance)
+            output[0, 0, t] = z_err
+            output[0, 1, t] = x_err
 
         return output
 

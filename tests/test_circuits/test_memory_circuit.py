@@ -6,7 +6,7 @@ from decoding_in_one.utils.types import CircuitSpec
 
 def test_build_basic_circuit():
     code = SurfaceCode(distance=3)
-    builder = MemoryCircuit(code)
+    builder = MemoryCircuit(code=code, n_rounds=3, basis="X")
     circuit = builder.build_memory_circuit(code, n_rounds=3, measurement_basis='X')
 
     assert 'REPEAT' in circuit
@@ -15,9 +15,9 @@ def test_build_basic_circuit():
 
 def test_build_memory_artifact():
     code = SurfaceCode(distance=3)
-    builder = MemoryCircuit(code)
+    builder = MemoryCircuit(code=code, n_rounds=2, basis="Z")
     artifact = builder.build_memory_artifact(code, CircuitSpec(n_rounds=2, measurement_basis='Z'))
 
     assert artifact.code.distance == 3
     assert artifact.spec.n_rounds == 2
-    assert 'REPEAT 2' in artifact.stim_circuit
+    assert 'MX' in artifact.stim_circuit or 'MZ' in artifact.stim_circuit

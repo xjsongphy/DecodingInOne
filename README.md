@@ -58,12 +58,13 @@ source .venv/bin/activate  # Linux/Mac
 
 ### Ising 风格训练（推荐）
 
-基于 Ising-Decoding 架构的训练流程，**完全独立运行，无需外部依赖**：
+基于 Ising-Decoding 架构的训练流程。若要忠实复现 Ising 训练数据语义，**需要提供预计算的 `frame_predecoder` DEM artifacts**：
 
 #### Conv3D 解码器训练
 
 ```bash
-# 使用默认配置训练（自动从 Stim 电路提取 DEM）
+# 使用默认配置训练
+# 注意：需要先在配置里填入 precomputed_frames_dir
 python experiments/ising/ising_train_model.py
 
 # 使用自定义配置
@@ -132,11 +133,11 @@ outputs/ising/YYYYMMDD_HHMMSS/
 └── full_report.json    # 完整训练报告
 ```
 
-**完全独立运行**：
-- ✅ 自动从 MemoryCircuit 生成的 Stim 电路提取 DEM 矩阵
-- ✅ 不依赖 Ising-Decoding 的预计算文件
-- ✅ 可选使用预计算文件加速（`precomputed_frames_dir`）
-- ✅ 可选启用并行采样加速（`enable_parallel`）
+**训练数据来源说明**：
+- 推荐：使用 Ising-Compatible `frame_predecoder` 预计算文件（`precomputed_frames_dir`）
+- 调试回退：显式设置 `allow_stim_dem_extraction: true` 后，可从 Stim 电路提取普通 DEM
+- 说明：Stim DEM 回退路径便于调试，但不等价于 Ising-Decoding 的训练数据语义
+- 可选启用并行采样加速（`enable_parallel`）
 
 ### 基础代码示例
 
@@ -213,7 +214,7 @@ NoiseModel (25p) + QuantumCode
     ↓
 MemoryCircuit → Stim 电路（通用化稳定子测量）
     ↓
-自动提取 DEM 矩阵 H, p（从 Stim 电路）
+    加载 Ising-Compatible frame_predecoder DEM artifacts
     ↓
 CircuitDataGenerator.generate_batch()
     ↓
@@ -222,7 +223,7 @@ dem_sampling(H, p) → GPU/CPU 采样
 DataLoader → Trainer → 模型
 ```
 
-**完全独立**：所有步骤在本地完成，无需外部预计算文件。
+**说明**：如果目标是对齐 Ising-Decoding 的训练数据，必须使用外部预计算的 `frame_predecoder` artifacts。
 
 ### 25 参数噪声模型
 

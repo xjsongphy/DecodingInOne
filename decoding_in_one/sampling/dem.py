@@ -99,22 +99,25 @@ def _dem_sampling_cpu(
     seed: Optional[int] = None,
 ) -> torch.Tensor:
     """
-    CPU fallback：基于 numpy 的 DEM 采样。
+    CPU fallback aligned with Ising-Decoding's torch-based path.
 
-    对每个误差独立地按概率 p_i 采样是否触发，然后叠加到检测器帧上。
-    速度远不如 GPU 路径，但无 cuquantum 依赖时可用。
+    Keeping the same RNG/backend behavior makes seeded local verification comparable
+    to the upstream implementation when cuQuantum is unavailable.
     """
-    rng = np.random.default_rng(seed)
-    H_np = H.cpu().numpy()  # (2*num_detectors, num_errors)
-    p_np = p.cpu().numpy()  # (num_errors,)
-
-    # (batch_size, num_errors) 布尔掩码：每个误差是否触发
-    triggers = rng.random((batch_size, p_np.shape[0])) < p_np[np.newaxis, :]
-
-    # GF(2) 矩阵乘法: frames = triggers @ H^T (mod 2)
-    frames = (triggers.astype(np.uint8) @ H_np.T.astype(np.uint8)) % 2
-
-    return torch.as_tensor(frames, dtype=torch.uint8, device=H.device)
+    generator = None
+    if seed is not None:
+        generator = torch.Generator(device=H.device)
+        generator.manual_seed(seed)
+    rand_vals = torch.rand(
+        batch_size,
+        int(H.shape[1]),
+        device=H.device,
+        dtype=torch.float32,
+        generator=generator,
+    )
+    errors = (rand_vals < p[None, :]).to(torch.uint8)
+    frames_xz = torch.matmul(errors.to(torch.float32), H.T.to(torch.float32))
+    return (frames_xz.to(torch.uint8) % 2)
 
 
 def dem_sampling(
@@ -152,7 +155,7 @@ def dem_sampling(
     # ---- CPU fallback ----
     if not _CUSTAB_AVAILABLE:
         if not _cpu_fallback_logged:
-            print("[dem_sampling] cuQuantum unavailable; using CPU numpy fallback")
+            print("[dem_sampling] cuQuantum unavailable; using CPU torch fallback")
             _cpu_fallback_logged = True
         return _dem_sampling_cpu(H, p, batch_size, seed=seed)
 

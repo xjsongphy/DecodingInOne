@@ -188,28 +188,6 @@ class SyndromeGraphBuilder:
 
         return node_features, node_types
 
-        # 数据比特节点特征：(D^2, 4) - 全零或 learned embedding
-        n_data_nodes = distance ** 2
-        data_features = torch.zeros(batch_size, n_data_nodes, 4, device=device)
-
-        # 时间编码（可选）：为每个时间步添加位置信息
-        if self.normalize_node_features:
-            max_val = det_features.abs().max(dim=-1, keepdim=True).values
-            det_features = det_features / max_val.clamp(min=1e-6)
-
-        # 合并节点特征
-        node_features = torch.cat([det_features, data_features], dim=1)  # (B, N_nodes, 4)
-
-        # 创建节点类型标记（用于区分检测器和数据比特）
-        n_detector_nodes = det_features.size(1)
-        n_total_nodes = n_detector_nodes + n_data_nodes
-
-        node_types = torch.cat([
-            torch.zeros(n_detector_nodes, device=device),  # type 0: 检测器
-            torch.ones(n_data_nodes, device=device),      # type 1: 数据比特
-        ]).long()
-
-        return node_features, node_types
 
     def _create_edges(
         self,
@@ -287,8 +265,10 @@ class SyndromeGraphBuilder:
 
                         for data_idx in data_indices:
                             if data_idx < n_data_nodes:  # 边界检查
-                                edges_list.append([x_det_idx, n_detector_nodes + data_idx])
-                                edge_types_list.append(2)
+                                data_node_id = n_detector_nodes + data_idx
+                                edges_list.append([x_det_idx, data_node_id])
+                                edges_list.append([data_node_id, x_det_idx])  # 反向边（无向）
+                                edge_types_list.extend([2, 2])
 
                         # Z 检测器
                         z_det_idx = det_offset + n_detectors_per_type + (r * (distance - 1) + c)
@@ -303,8 +283,10 @@ class SyndromeGraphBuilder:
 
                         for data_idx in data_indices:
                             if data_idx < n_data_nodes:  # 边界检查
-                                edges_list.append([z_det_idx, n_detector_nodes + data_idx])
-                                edge_types_list.append(2)
+                                data_node_id = n_detector_nodes + data_idx
+                                edges_list.append([z_det_idx, data_node_id])
+                                edges_list.append([data_node_id, z_det_idx])  # 反向边（无向）
+                                edge_types_list.extend([2, 2])
 
         # 转换为张量
         if len(edges_list) > 0:

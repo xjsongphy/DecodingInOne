@@ -309,8 +309,9 @@ class MemoryCircuit(Circuit):
         self._add_boundary_detectors = add_boundary_detectors
         self.code = code
 
-        # 初始化底层 Circuit
-        super().__init__(code.get_n_physical(), code=code)
+        # Match Ising-Decoding: the low-level circuit needs every qubit id, not just the data count.
+        all_qubits = code.get_data_qubits() + code.get_check_qubits("X") + code.get_check_qubits("Z")
+        super().__init__(all_qubits, code=code)
 
         # 设置噪声
         if noise_model is not None:
@@ -457,14 +458,59 @@ class MemoryCircuit(Circuit):
         if self._add_tick:
             self.add_tick()
 
-        # --- 通用 CNOT 层：支持任意图结构 ---
-        # 对于表面码，x_layers/z_layers 返回优化的四层
-        # 对于 QLDPC，使用图着色处理非局部连接
-        all_layers = []
-        for x_layer in x_layers:
-            all_layers.append(x_layer)
-        for z_layer in z_layers:
-            all_layers.append(z_layer)
+        # --- CNOT 层 ---
+        # SurfaceCode needs the original Ising-Decoding ordering:
+        # within each directional layer, X and Z checks are interleaved check-by-check.
+        if hasattr(code, "xcheck_qubits_dict") and hasattr(code, "zcheck_qubits_dict"):
+            all_layers = []
+            xcheck_qubits = code.get_check_qubits("X")
+            zcheck_qubits = code.get_check_qubits("Z")
+            for i in range(4):
+                layer = []
+                for xcheck_q, zcheck_q in zip(xcheck_qubits, zcheck_qubits):
+                    x_data_q = code.xcheck_qubits_dict[xcheck_q]["plaquette"]["qubit_id"][i]
+                    z_data_q = code.zcheck_qubits_dict[zcheck_q]["plaquette"]["qubit_id"][i]
+                    if x_data_q != -1:
+                        layer.append((xcheck_q, x_data_q))
+                    if z_data_q != -1:
+                        layer.append((z_data_q, zcheck_q))
+                all_layers.append(layer)
+        else:
+            # Generic path for non-local graphs such as QLDPC.
+            # Merge X and Z layers with conflict resolution:
+            # within each merged layer, no qubit can appear in more than one CNOT.
+            all_layers = []
+            x_remaining = list(x_layers)  # copy
+            z_remaining = list(z_layers)
+
+            while x_remaining or z_remaining:
+                layer = []
+                used = set()
+
+                # Try to add edges from one X layer and one Z layer
+                for src in [x_remaining, z_remaining]:
+                    if not src:
+                        continue
+                    pending = []  # edges that conflict
+                    for edge in src[0]:
+                        c, t = edge
+                        if c not in used and t not in used:
+                            layer.append(edge)
+                            used.add(c)
+                            used.add(t)
+                        else:
+                            pending.append(edge)
+                    # Replace the layer with only the conflicting edges
+                    if pending:
+                        src[0] = pending
+                    else:
+                        src.pop(0)
+
+                if layer:
+                    all_layers.append(layer)
+                else:
+                    # No progress — shouldn't happen, but break to avoid infinite loop
+                    break
 
         for layer in all_layers:
             qubits = []

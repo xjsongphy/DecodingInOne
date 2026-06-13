@@ -1,110 +1,235 @@
-# decoding_in_one/codes/surface_code.py
-"""
-从 Ising-Decoding 迁移的表面码实现
-源码参考: Ising-Decoding/code/qec/surface_code/memory_circuit.py
-"""
+"""Faithful surface-code geometry used by the Ising decoder pipeline."""
+
+from __future__ import annotations
 
 from typing import Dict, List, Tuple
-from decoding_in_one.codes.base import QuantumCode, PauliString
+
+import numpy as np
+
+from decoding_in_one.codes.base import PauliString, QuantumCode, QubitCoordinate
+
 
 class SurfaceCode(QuantumCode):
-    """
-    旋转表面码实现
+    """Rotated surface code with the same qubit ordering as Ising-Decoding."""
 
-    Args:
-        distance: 码距（必须是奇数）
-        rotation: 电路方向 'XV', 'XH', 'ZV', 'ZH'
-    """
-
-    def __init__(self, distance: int, rotation: str = 'XV'):
+    def __init__(self, distance: int, rotation: str = "XV"):
         if distance % 2 == 0:
             raise ValueError("Distance must be odd")
         rotation = rotation.upper()
         if rotation not in ("XV", "XH", "ZV", "ZH"):
             raise ValueError("rotation must be one of: XV, XH, ZV, ZH")
 
-        self.distance = distance
+        self.distance = int(distance)
         self.rotation = rotation
-
-        # 构建码结构
+        self.first_bulk_syndrome_type = rotation[0]
+        self.rotated_type = rotation[1]
+        self.logical_direction = self.first_bulk_syndrome_type + (
+            "V" if self.rotated_type == "H" else "H"
+        )
         self._build_code()
 
-    def _build_code(self):
-        """构建表面码结构。"""
-        n_data = self.distance ** 2
-        self._data_qubits = list(range(n_data))
+    def _build_code(self) -> None:
+        code_dict = self._generate_code()
+        self.code_dict = code_dict
+        self.data_qubits_dict = code_dict["data"]
+        self.xcheck_qubits_dict = code_dict["syndrome_X"]
+        self.zcheck_qubits_dict = code_dict["syndrome_Z"]
+
+        self._data_qubits = list(self.data_qubits_dict.keys())
+        self._xcheck_qubits = list(self.xcheck_qubits_dict.keys())
+        self._zcheck_qubits = list(self.zcheck_qubits_dict.keys())
+        self._all_qubits = self._data_qubits + self._xcheck_qubits + self._zcheck_qubits
+
+        self.hx = np.zeros((len(self._xcheck_qubits), len(self._data_qubits)), dtype=np.int8)
+        self.hz = np.zeros((len(self._zcheck_qubits), len(self._data_qubits)), dtype=np.int8)
+        for i, xcheck in enumerate(self._xcheck_qubits):
+            for data_q in self.xcheck_qubits_dict[xcheck]["plaquette"]["qubit_id"]:
+                if data_q != -1:
+                    self.hx[i, data_q] = 1
+        for i, zcheck in enumerate(self._zcheck_qubits):
+            for data_q in self.zcheck_qubits_dict[zcheck]["plaquette"]["qubit_id"]:
+                if data_q != -1:
+                    self.hz[i, data_q] = 1
+
+        self.lx = np.zeros((self.distance, self.distance), dtype=np.int8)
+        self.lz = np.zeros((self.distance, self.distance), dtype=np.int8)
+        self.lx[0, : self.distance] = 1
+        self.lz[0, : self.distance] = 1
+        if self.logical_direction == "XH":
+            self.lx = self.lx.reshape(1, -1)
+            self.lz = self.lz.T.reshape(1, -1)
+        elif self.logical_direction == "XV":
+            self.lx = self.lx.T.reshape(1, -1)
+            self.lz = self.lz.reshape(1, -1)
+        elif self.logical_direction == "ZH":
+            self.lx = self.lx.T.reshape(1, -1)
+            self.lz = self.lz.reshape(1, -1)
+        elif self.logical_direction == "ZV":
+            self.lx = self.lx.reshape(1, -1)
+            self.lz = self.lz.T.reshape(1, -1)
+
         self._data_coords = {
-            idx: (idx // self.distance, idx % self.distance) for idx in self._data_qubits
+            qid: (
+                (self.data_qubits_dict[qid]["coord"][0] - 1) // 2,
+                (self.data_qubits_dict[qid]["coord"][1] - 1) // 2,
+            )
+            for qid in self._data_qubits
+        }
+        self._full_qubit_coords = {
+            qid: tuple(float(c) for c in self._data_coords[qid]) for qid in self._data_qubits
+        }
+        self._check_coords = {
+            qid: (
+                self.xcheck_qubits_dict[qid]["coord"][0] / 2.0 - 0.5,
+                self.xcheck_qubits_dict[qid]["coord"][1] / 2.0 - 0.5,
+            )
+            for qid in self._xcheck_qubits
+        }
+        self._check_coords.update(
+            {
+                qid: (
+                    self.zcheck_qubits_dict[qid]["coord"][0] / 2.0 - 0.5,
+                    self.zcheck_qubits_dict[qid]["coord"][1] / 2.0 - 0.5,
+                )
+                for qid in self._zcheck_qubits
+            }
+        )
+        self._full_qubit_coords.update(self._check_coords)
+
+    def _generate_code(self) -> dict:
+        code_dict = {
+            "data": {q: {"coord": []} for q in range(self.distance**2)},
+            "syndrome_X": {
+                x: {"coord": [], "plaquette": {"coord": [], "qubit_id": []}, "type": ""}
+                for x in range(self.distance**2, self.distance**2 + (self.distance**2 - 1) // 2)
+            },
+            "syndrome_Z": {
+                z: {"coord": [], "plaquette": {"coord": [], "qubit_id": []}, "type": ""}
+                for z in range(
+                    self.distance**2 + (self.distance**2 - 1) // 2,
+                    self.distance**2 + (self.distance**2 - 1),
+                )
+            },
         }
 
-        x_supports: List[Tuple[int, ...]] = []
-        z_supports: List[Tuple[int, ...]] = []
-        boundary_supports: List[Tuple[int, ...]] = []
+        qubit_coord_dict = {"data": [], "syndrome_X": [], "syndrome_Z": []}
 
-        x_prefer_even = self.rotation in ("XV", "ZH")
-        keep_even_boundary = self.rotation in ("XV", "XH")
+        x_flag = False if self.first_bulk_syndrome_type == "X" else True
+        for i in range(self.distance):
+            x_flag = not x_flag
+            for j in range(self.distance):
+                x = 1 + 2 * i
+                y = 1 + 2 * j
+                qubit_coord_dict["data"].append([x, y])
+                if i < self.distance - 1 and j < self.distance - 1:
+                    if x_flag:
+                        qubit_coord_dict["syndrome_X"].append([x + 1, y + 1])
+                    else:
+                        qubit_coord_dict["syndrome_Z"].append([x + 1, y + 1])
+                    x_flag = not x_flag
 
-        max_coord = 2 * self.distance
-        for x in range(0, max_coord + 1, 2):
-            for y in range(0, max_coord + 1, 2):
-                support = self._support_from_check_coord(x, y)
-                if len(support) not in (2, 4):
-                    continue
-
-                parity = ((x // 2) + (y // 2)) % 2
-                if len(support) == 2:
-                    if (parity == 0) != keep_even_boundary:
-                        continue
-                    boundary_supports.append(support)
-                    continue
-
-                is_x = parity == 0 if x_prefer_even else parity == 1
-                if is_x:
-                    x_supports.append(support)
+        position = [0, 0]
+        keep_flag = 0 if self.rotated_type == "H" else 1
+        x_flag = (self.rotated_type == "H") * (self.first_bulk_syndrome_type == "X") + (
+            self.rotated_type == "V"
+        ) * (self.first_bulk_syndrome_type == "Z")
+        for _ in range(4 * self.distance - 1):
+            position = self._hop(position, self.distance)
+            keep_flag = (keep_flag + 1) % 2
+            keep = not (keep_flag % 2)
+            if keep and position not in (
+                [0, 0],
+                [0, 2 * self.distance],
+                [2 * self.distance, 0],
+                [2 * self.distance, 2 * self.distance],
+            ):
+                if x_flag:
+                    qubit_coord_dict["syndrome_X"].append(position)
                 else:
-                    z_supports.append(support)
+                    qubit_coord_dict["syndrome_Z"].append(position)
 
-        boundary_supports = sorted(boundary_supports, key=lambda s: s[0])
-        boundary_x_first = self.rotation[0] == "X"
-        for i, support in enumerate(boundary_supports):
-            if (i % 2 == 0) == boundary_x_first:
-                x_supports.append(support)
-            else:
-                z_supports.append(support)
+            if position in (
+                [0, 0],
+                [0, 2 * self.distance],
+                [2 * self.distance, 0],
+                [2 * self.distance, 2 * self.distance],
+            ):
+                keep_flag = (keep_flag - 1) % 2
+                x_flag = not x_flag
 
-        expected = (self.distance ** 2 - 1) // 2
-        if len(x_supports) != expected or len(z_supports) != expected:
-            raise RuntimeError(
-                f"Invalid stabilizer counts for distance={self.distance}, rotation={self.rotation}: "
-                f"X={len(x_supports)}, Z={len(z_supports)}, expected={expected}"
+        qubit_coord_dict["data"] = sorted(qubit_coord_dict["data"])
+        qubit_coord_dict["syndrome_X"] = sorted(qubit_coord_dict["syndrome_X"])
+        temp = [[y, x] for x, y in qubit_coord_dict["syndrome_Z"]]
+        temp = sorted(temp)
+        qubit_coord_dict["syndrome_Z"] = [[y, x] for x, y in temp]
+        self._qubit_coord_dict = qubit_coord_dict
+
+        for i, coord in enumerate(qubit_coord_dict["data"]):
+            code_dict["data"][i]["coord"] = coord
+
+        for i, coord in enumerate(qubit_coord_dict["syndrome_X"]):
+            qid = i + self.distance**2
+            code_dict["syndrome_X"][qid]["coord"] = coord
+            code_dict["syndrome_X"][qid]["type"] = (
+                "boundary" if 0 in coord or 2 * self.distance in coord else "bulk"
             )
 
-        x_supports = sorted(x_supports, key=lambda s: s[0])
-        z_supports = sorted(z_supports, key=lambda s: s[0])
+        z_offset = self.distance**2 + (self.distance**2 - 1) // 2
+        for i, coord in enumerate(qubit_coord_dict["syndrome_Z"]):
+            qid = i + z_offset
+            code_dict["syndrome_Z"][qid]["coord"] = coord
+            code_dict["syndrome_Z"][qid]["type"] = (
+                "boundary" if 0 in coord or 2 * self.distance in coord else "bulk"
+            )
 
-        self._xcheck_qubits = list(range(n_data, n_data + len(x_supports)))
-        self._zcheck_qubits = list(range(
-            n_data + len(x_supports),
-            n_data + len(x_supports) + len(z_supports),
-        ))
-        self._x_connections = {
-            check: list(support) for check, support in zip(self._xcheck_qubits, x_supports)
-        }
-        self._z_connections = {
-            check: list(support) for check, support in zip(self._zcheck_qubits, z_supports)
-        }
+        for qid in code_dict["syndrome_X"]:
+            i, j = code_dict["syndrome_X"][qid]["coord"]
+            if self.logical_direction in ("XH", "ZV"):
+                candidates = [[i - 1, j + 1], [i + 1, j + 1], [i - 1, j - 1], [i + 1, j - 1]]
+            else:
+                candidates = [[i - 1, j + 1], [i - 1, j - 1], [i + 1, j + 1], [i + 1, j - 1]]
+            for candidate in candidates:
+                if candidate in qubit_coord_dict["data"]:
+                    code_dict["syndrome_X"][qid]["plaquette"]["coord"].append(candidate)
+                    code_dict["syndrome_X"][qid]["plaquette"]["qubit_id"].append(
+                        qubit_coord_dict["data"].index(candidate)
+                    )
+                else:
+                    code_dict["syndrome_X"][qid]["plaquette"]["coord"].append([-1, -1])
+                    code_dict["syndrome_X"][qid]["plaquette"]["qubit_id"].append(-1)
 
-    def _support_from_check_coord(self, x: int, y: int) -> Tuple[int, ...]:
-        """根据格点坐标生成该稳定子的支撑数据比特。"""
-        support: List[int] = []
-        for dx, dy in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
-            nx, ny = x + dx, y + dy
-            if 1 <= nx <= 2 * self.distance - 1 and 1 <= ny <= 2 * self.distance - 1:
-                if nx % 2 == 1 and ny % 2 == 1:
-                    r = (nx - 1) // 2
-                    c = (ny - 1) // 2
-                    support.append(r * self.distance + c)
-        return tuple(sorted(support))
+        for qid in code_dict["syndrome_Z"]:
+            i, j = code_dict["syndrome_Z"][qid]["coord"]
+            if self.logical_direction in ("XH", "ZV"):
+                candidates = [[i - 1, j + 1], [i - 1, j - 1], [i + 1, j + 1], [i + 1, j - 1]]
+            else:
+                candidates = [[i - 1, j + 1], [i + 1, j + 1], [i - 1, j - 1], [i + 1, j - 1]]
+            for candidate in candidates:
+                if candidate in qubit_coord_dict["data"]:
+                    code_dict["syndrome_Z"][qid]["plaquette"]["coord"].append(candidate)
+                    code_dict["syndrome_Z"][qid]["plaquette"]["qubit_id"].append(
+                        qubit_coord_dict["data"].index(candidate)
+                    )
+                else:
+                    code_dict["syndrome_Z"][qid]["plaquette"]["coord"].append([-1, -1])
+                    code_dict["syndrome_Z"][qid]["plaquette"]["qubit_id"].append(-1)
+
+        return code_dict
+
+    @staticmethod
+    def _hop(position: List[int], distance: int) -> List[int]:
+        x, y = position
+        if x == 0 and y == 0:
+            return [0, 2]
+        if x == 0:
+            return [x + 2, y] if y == 2 * distance else [x, y + 2]
+        if x == 2 * distance:
+            return [x - 2, y] if y == 0 else [x, y - 2]
+        if y == 0:
+            return [x, y + 2] if x == 0 else [x - 2, y]
+        if y == 2 * distance:
+            return [x, y - 2] if x == 2 * distance else [x + 2, y]
+        raise RuntimeError("Invalid boundary hop state")
 
     def get_n_physical(self) -> int:
         return len(self._data_qubits)
@@ -113,47 +238,57 @@ class SurfaceCode(QuantumCode):
         return 1
 
     def get_stabilizers(self) -> List[PauliString]:
-        """返回所有稳定子生成元。"""
-        stabilizers = []
-        n = self.get_n_physical()
-
-        for support in self._x_connections.values():
+        stabilizers: List[PauliString] = []
+        n = len(self._data_qubits)
+        for qid in self._xcheck_qubits:
             ops = ["I"] * n
-            for q in support:
-                ops[q] = "X"
+            for data_q in self.xcheck_qubits_dict[qid]["plaquette"]["qubit_id"]:
+                if data_q != -1:
+                    ops[data_q] = "X"
             stabilizers.append(PauliString("".join(ops)))
-
-        for support in self._z_connections.values():
+        for qid in self._zcheck_qubits:
             ops = ["I"] * n
-            for q in support:
-                ops[q] = "Z"
+            for data_q in self.zcheck_qubits_dict[qid]["plaquette"]["qubit_id"]:
+                if data_q != -1:
+                    ops[data_q] = "Z"
             stabilizers.append(PauliString("".join(ops)))
-
         return stabilizers
 
     def get_logical_operators(self) -> Dict[str, PauliString]:
-        """返回一组标准逻辑算符。"""
-        n = self.get_n_physical()
-        ops_x = ["I"] * n
-        ops_z = ["I"] * n
-        if self.rotation in ("XV", "ZH"):
-            line = [r * self.distance for r in range(self.distance)]
-            cross = [c for c in range(self.distance)]
-        else:
-            line = [c for c in range(self.distance)]
-            cross = [r * self.distance for r in range(self.distance)]
-        for q in line:
-            ops_x[q] = "X"
-        for q in cross:
-            ops_z[q] = "Z"
-        return {
-            'X': PauliString("".join(ops_x)),
-            'Z': PauliString("".join(ops_z)),
-        }
+        lx_ops = ["I"] * len(self._data_qubits)
+        lz_ops = ["I"] * len(self._data_qubits)
+        for idx, value in enumerate(self.lx.flatten().tolist()):
+            if value == 1:
+                lx_ops[idx] = "X"
+        for idx, value in enumerate(self.lz.flatten().tolist()):
+            if value == 1:
+                lz_ops[idx] = "Z"
+        return {"X": PauliString("".join(lx_ops)), "Z": PauliString("".join(lz_ops))}
 
     def get_qubit_topology(self) -> Dict[int, Tuple[int, int]]:
-        """返回数据比特到 2D 坐标 (row, col) 的映射。"""
         return dict(self._data_coords)
+
+    def get_qubit_coordinates(self) -> Dict[int, QubitCoordinate]:
+        coords: Dict[int, QubitCoordinate] = {}
+        for qid, coord in self._data_coords.items():
+            coords[qid] = QubitCoordinate(
+                coords=self._full_qubit_coords[qid],
+                qubit_id=qid,
+                qubit_type="data",
+            )
+        for qid in self._xcheck_qubits:
+            coords[qid] = QubitCoordinate(
+                coords=self._full_qubit_coords[qid],
+                qubit_id=qid,
+                qubit_type="check_X",
+            )
+        for qid in self._zcheck_qubits:
+            coords[qid] = QubitCoordinate(
+                coords=self._full_qubit_coords[qid],
+                qubit_id=qid,
+                qubit_type="check_Z",
+            )
+        return coords
 
     def get_data_qubits(self) -> List[int]:
         return list(self._data_qubits)
@@ -169,41 +304,43 @@ class SurfaceCode(QuantumCode):
     def get_stabilizer_supports(self, stabilizer_type: str) -> Dict[int, Tuple[int, ...]]:
         stabilizer_type = stabilizer_type.upper()
         if stabilizer_type == "X":
-            return {k: tuple(v) for k, v in self._x_connections.items()}
-        if stabilizer_type == "Z":
-            return {k: tuple(v) for k, v in self._z_connections.items()}
-        raise ValueError("stabilizer_type must be 'X' or 'Z'")
+            source = self.xcheck_qubits_dict
+            qubits = self._xcheck_qubits
+        elif stabilizer_type == "Z":
+            source = self.zcheck_qubits_dict
+            qubits = self._zcheck_qubits
+        else:
+            raise ValueError("stabilizer_type must be 'X' or 'Z'")
+        return {
+            qid: tuple(q for q in source[qid]["plaquette"]["qubit_id"] if q != -1) for qid in qubits
+        }
 
     def get_stabilizer_measurement_layers(
         self, stabilizer_type: str
     ) -> List[List[Tuple[int, int]]]:
-        """返回表面码优化的四层 CNOT 结构
+        stabilizer_type = stabilizer_type.upper()
+        if stabilizer_type == "X":
+            source = self.xcheck_qubits_dict
+            qubits = self._xcheck_qubits
+            control_first = True
+        elif stabilizer_type == "Z":
+            source = self.zcheck_qubits_dict
+            qubits = self._zcheck_qubits
+            control_first = False
+        else:
+            raise ValueError("stabilizer_type must be 'X' or 'Z'")
 
-        对于表面码，稳定子测量可以优化为四层并发 CNOT。
-        这是表面码的局部性特性带来的优化。
+        layers: List[List[Tuple[int, int]]] = [[], [], [], []]
+        for qid in qubits:
+            plaquette = source[qid]["plaquette"]["qubit_id"]
+            for i, data_q in enumerate(plaquette):
+                if data_q == -1:
+                    continue
+                if control_first:
+                    layers[i].append((qid, data_q))
+                else:
+                    layers[i].append((data_q, qid))
+        return layers
 
-        Args:
-            stabilizer_type: 'X' 或 'Z'
-
-        Returns:
-            四层 CNOT，每层是 [(control, target), ...]
-            control 是辅助比特（check qubit），target 是数据比特
-
-        Note:
-            这覆盖了基类的贪心着色算法，使用表面码优化的固定四层结构。
-        """
-        supports = self.get_stabilizer_supports(stabilizer_type)
-        check_qubits = self.get_check_qubits(stabilizer_type)
-
-        # 四层结构：按照支撑数据比特的相对位置分组
-        layers = [[], [], [], []]
-
-        for check_q in check_qubits:
-            support = supports.get(check_q, [])
-            # 根据支撑数据比特的位置分配到四层
-            for i, data_q in enumerate(support):
-                if i < 4:
-                    layers[i].append((check_q, data_q))
-
-        # 过滤空层
-        return [layer for layer in layers if layer]
+    def get_all_qubits(self) -> List[int]:
+        return list(self._all_qubits)

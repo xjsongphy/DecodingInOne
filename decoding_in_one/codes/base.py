@@ -241,6 +241,12 @@ class QuantumCode(ABC):
         对于非局部图（如 QLDPC），需要将边分层使得同一层内无冲突。
         默认实现使用简单的贪心着色算法。
 
+        CNOT 方向约定（与 Ising-Decoding 一致）：
+          - X 稳定子: CNOT(control=check_qubit, target=data_qubit)
+            即 ancilla → data（H 门前后包裹 CNOT 实现 X 型测量）
+          - Z 稳定子: CNOT(control=data_qubit, target=check_qubit)
+            即 data → ancilla（直接 CNOT 实现 Z 型测量）
+
         Args:
             stabilizer_type: 'X' 或 'Z'
 
@@ -251,16 +257,18 @@ class QuantumCode(ABC):
             - 对于局部码（如表面码），可以返回优化的固定层数
             - 对于 QLDPC，使用图着色算法处理冲突
         """
-        import numpy as np
-
         supports = self.get_stabilizer_supports(stabilizer_type)
         check_qubits = self.get_check_qubits(stabilizer_type)
 
-        # 构建边列表：(control=check_qubit, target=data_qubit)
+        # 构建 CNOT 边：注意 X 和 Z 的 control/target 方向不同
+        control_first = (stabilizer_type.upper() == 'X')
         edges = []
         for check_q in check_qubits:
             for data_q in supports.get(check_q, []):
-                edges.append((check_q, data_q))
+                if control_first:
+                    edges.append((check_q, data_q))   # X: ancilla → data
+                else:
+                    edges.append((data_q, check_q))    # Z: data → ancilla
 
         # 贪心图着色：返回不冲突的层
         layers = []

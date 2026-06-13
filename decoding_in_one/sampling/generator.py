@@ -14,16 +14,31 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, List, Mapping, Optional, Union
 
 import numpy as np
 import stim
 import torch
 
-from decoding_in_one.sampling.dem import dem_sampling, dem_sampling_parallel
+from decoding_in_one.codes import SurfaceCode
+from decoding_in_one.sampling.dem import (
+    dem_sampling,
+    dem_sampling_parallel,
+    measure_from_stacked_frames,
+    timelike_syndromes,
+)
 from decoding_in_one.codes.surface_code.data_mapping import (
     normalized_weight_mapping_Xstab_memory,
     normalized_weight_mapping_Zstab_memory,
+    reshape_Xstabilizers_to_grid_vectorized,
+    reshape_Zstabilizers_to_grid_vectorized,
+)
+from decoding_in_one.codes.surface_code.homological_equivalence_torch import (
+    apply_weight1_timelike_homological_equivalence_torch,
+    build_spacelike_he_cache,
+    build_timelike_he_cache,
+    build_weight2_timelike_cache,
+    warmup_he_compile,
 )
 
 # tqdm 进度条（可选依赖）
@@ -164,6 +179,19 @@ class CircuitDataGenerator:
         enable_parallel: bool = False,
         num_workers: int = 4,
         device_ids: Optional[List[int]] = None,
+        # HE configuration
+        timelike_he: bool = True,
+        num_he_cycles: int = 1,
+        max_passes_w1: int = 32,
+        use_compile: bool = False,
+        compile_chunk_size: int = 2,
+        compute_dtype: Optional[torch.dtype] = None,
+        use_weight2: bool = False,
+        max_passes_w2: int = 4,
+        use_coset_search: bool = False,
+        coset_max_generators: int = 20,
+        use_dense_overlap: bool = False,
+        use_parallel_spacelike: bool = False,
         # 设备
         device: Optional[torch.device] = None,
     ):
@@ -172,11 +200,93 @@ class CircuitDataGenerator:
         self.basis = str(basis).upper()
         self.code_rotation = str(code_rotation).upper()
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._mixed = self.basis in ("BOTH", "MIXED")
+        self._mixed_generators: Dict[str, "CircuitDataGenerator"] = {}
+        self._mixed_call_count = 0
+
+        if self._mixed:
+            if H is not None or p is not None or A is not None or p_override is not None:
+                raise ValueError("Mixed-basis generator does not accept direct H/p/A inputs")
+            if stim_circuit is not None and not isinstance(stim_circuit, Mapping):
+                raise ValueError(
+                    "Mixed-basis generator expects stim_circuit to be a mapping with X/Z entries"
+                )
+            stim_circuits = dict(stim_circuit or {})
+            common_kwargs = dict(
+                distance=self.distance,
+                n_rounds=self.n_rounds,
+                code_rotation=self.code_rotation,
+                allow_stim_dem_extraction=allow_stim_dem_extraction,
+                precomputed_frames_dir=precomputed_frames_dir,
+                enable_parallel=enable_parallel,
+                num_workers=num_workers,
+                device_ids=device_ids,
+                timelike_he=timelike_he,
+                num_he_cycles=num_he_cycles,
+                max_passes_w1=max_passes_w1,
+                use_compile=use_compile,
+                compile_chunk_size=compile_chunk_size,
+                compute_dtype=compute_dtype,
+                use_weight2=use_weight2,
+                max_passes_w2=max_passes_w2,
+                use_coset_search=use_coset_search,
+                coset_max_generators=coset_max_generators,
+                use_dense_overlap=use_dense_overlap,
+                use_parallel_spacelike=use_parallel_spacelike,
+                device=self.device,
+            )
+            self._mixed_generators["X"] = CircuitDataGenerator(
+                basis="X",
+                stim_circuit=stim_circuits.get("X"),
+                **common_kwargs,
+            )
+            self._mixed_generators["Z"] = CircuitDataGenerator(
+                basis="Z",
+                stim_circuit=stim_circuits.get("Z"),
+                **common_kwargs,
+            )
+            return
+
+        self.code = SurfaceCode(self.distance, rotation=self.code_rotation)
+        self.data_qubits = torch.as_tensor(
+            self.code.get_data_qubits(), dtype=torch.long, device=self.device
+        )
+        self.xcheck_qubits = torch.as_tensor(
+            self.code.get_check_qubits("X"), dtype=torch.long, device=self.device
+        )
+        self.zcheck_qubits = torch.as_tensor(
+            self.code.get_check_qubits("Z"), dtype=torch.long, device=self.device
+        )
+        self.nq = int(
+            len(self.code.get_data_qubits()) +
+            len(self.code.get_check_qubits("X")) +
+            len(self.code.get_check_qubits("Z"))
+        )
+        self.meas_qubits = torch.cat([self.xcheck_qubits, self.zcheck_qubits], dim=0)
+        self.meas_bases = torch.cat(
+            [
+                torch.zeros(len(self.xcheck_qubits), dtype=torch.long, device=self.device),
+                torch.ones(len(self.zcheck_qubits), dtype=torch.long, device=self.device),
+            ],
+            dim=0,
+        )
 
         # 并行采样配置
         self.enable_parallel = enable_parallel
         self.num_workers = num_workers
         self.device_ids = device_ids
+        self.timelike_he = bool(timelike_he)
+        self.num_he_cycles = int(num_he_cycles)
+        self.max_passes_w1 = int(max_passes_w1)
+        self.use_compile = bool(use_compile)
+        self.compile_chunk_size = int(compile_chunk_size)
+        self.compute_dtype = compute_dtype
+        self.use_weight2 = bool(use_weight2)
+        self.max_passes_w2 = int(max_passes_w2)
+        self.use_coset_search = bool(use_coset_search)
+        self.coset_max_generators = int(coset_max_generators)
+        self.use_dense_overlap = bool(use_dense_overlap)
+        self.use_parallel_spacelike = bool(use_parallel_spacelike)
 
         # ---------- 加载 DEM 矩阵 ----------
         if H is not None and p is not None:
@@ -208,6 +318,55 @@ class CircuitDataGenerator:
             .reshape(self.distance, self.distance)
             .to(self.device)
         )
+        self._frame_row_count = int(2 * self.n_rounds * self.nq)
+        self._has_frame_predecoder_semantics = int(self.H.shape[0]) == self._frame_row_count
+        self._fallback_warning_emitted = False
+        self._compile_thread = None
+
+        self.parity_X = torch.tensor(self.code.hx, dtype=torch.uint8, device=self.device)
+        self.parity_Z = torch.tensor(self.code.hz, dtype=torch.uint8, device=self.device)
+        self.cache_X_sp = None
+        self.cache_Z_sp = None
+        self.cache_X_tl = None
+        self.cache_Z_tl = None
+        self.cache_X_w2 = None
+        self.cache_Z_w2 = None
+
+        if self._has_frame_predecoder_semantics and self.timelike_he:
+            self.cache_X_sp = build_spacelike_he_cache(
+                self.parity_X, distance=self.distance, basis="X", device=self.device
+            )
+            self.cache_Z_sp = build_spacelike_he_cache(
+                self.parity_Z, distance=self.distance, basis="Z", device=self.device
+            )
+            self.cache_X_tl = build_timelike_he_cache(self.parity_X)
+            self.cache_Z_tl = build_timelike_he_cache(self.parity_Z)
+
+            if self.use_weight2:
+                self.cache_X_w2 = build_weight2_timelike_cache(
+                    self.parity_Z, self.parity_Z, self.distance, "X", self.device
+                )
+                self.cache_Z_w2 = build_weight2_timelike_cache(
+                    self.parity_X, self.parity_X, self.distance, "Z", self.device
+                )
+
+            if self.device.type == "cuda" and self.use_compile:
+                import threading
+
+                self._compile_thread = threading.Thread(
+                    target=warmup_he_compile,
+                    kwargs=dict(
+                        distance=self.distance,
+                        n_rounds=self.n_rounds,
+                        basis=self.basis,
+                        max_passes_w1=self.max_passes_w1,
+                        use_weight2=self.use_weight2,
+                        max_passes_w2=self.max_passes_w2,
+                        use_parallel_spacelike=self.use_parallel_spacelike,
+                    ),
+                    daemon=True,
+                )
+                self._compile_thread.start()
 
     # ------------------------------------------------------------------
     # DEM 来源
@@ -276,6 +435,7 @@ class CircuitDataGenerator:
         seed: Optional[int] = None,
         keep_on_cpu: bool = False,
         verbose: bool = True,
+        step: Optional[int] = None,
     ) -> dict[str, torch.Tensor]:
         """
         生成一个批次的训练数据（Ising-Decoding 方式）。
@@ -297,6 +457,25 @@ class CircuitDataGenerator:
             - 'trainX': (B, 4, T, D, D) — [x_syn, z_syn, x_pres, z_pres]
             - 'trainY': (B, 4, T, D, D) — [z_err, x_err, s1x, s1z]
         """
+        if self._mixed:
+            if step is None:
+                step = self._mixed_call_count
+                self._mixed_call_count += 1
+            branch_basis = "X" if (int(step) % 2 == 0) else "Z"
+            return self._mixed_generators[branch_basis].generate_batch(
+                batch_size=batch_size,
+                seed=seed,
+                keep_on_cpu=keep_on_cpu,
+                verbose=verbose,
+                step=step,
+            )
+
+        if self._compile_thread is not None:
+            self._compile_thread.join(timeout=1200)
+            if self._compile_thread.is_alive():
+                raise RuntimeError("warmup_he_compile thread did not finish within 20 min")
+            self._compile_thread = None
+
         device_id = None
         if self.device.type == "cuda":
             device_index = self.device.index
@@ -316,41 +495,9 @@ class CircuitDataGenerator:
                 self.H, self.p, batch_size, device_id=device_id, seed=seed
             )  # (B, 2*n_det)
 
-        # 2. 提取累积数据比特帧
-        # frames_xz = [X_block | Z_block]，每个 block 有 (n_rounds * n_qubits) 列
-        D = frames_xz.shape[1] // 2  # n_det（半边）
-        nq = D // self.n_rounds      # 总比特数
-        R = self.n_rounds
-        DD = self.distance
-
-        # 数据比特索引（按可用位数截断；不足时后续补零到 distance²）
-        n_data = min(DD * DD, nq)
-        data_idx = (
-            torch.arange(R, device=self.device)[:, None] * nq
-            + torch.arange(n_data, device=self.device)[None, :]
-        ).reshape(-1)
-
-        x_cum = frames_xz[:, :D].index_select(1, data_idx).reshape(batch_size, R, n_data)
-        z_cum = frames_xz[:, D:].index_select(1, data_idx).reshape(batch_size, R, n_data)
-
-        if n_data < DD * DD:
-            pad = DD * DD - n_data
-            x_cum = torch.nn.functional.pad(x_cum, (0, pad))
-            z_cum = torch.nn.functional.pad(z_cum, (0, pad))
-
-        # 3. 差分（当前帧 XOR 前一帧）
-        xpad = torch.cat([torch.zeros_like(x_cum[:, :1, :]), x_cum], dim=1)
-        zpad = torch.cat([torch.zeros_like(z_cum[:, :1, :]), z_cum], dim=1)
-        x_diff = xpad[:, :-1, :] ^ xpad[:, 1:, :]  # (B, R, D²)
-        z_diff = zpad[:, :-1, :] ^ zpad[:, 1:, :]
-
-        # 4. Ising-Decoding 格式化（在 CPU 上执行以避免 GPU OOM）
-        # 将张量移到 CPU 进行格式化，避免 GPU 内存峰值
-        device_orig = x_diff.device
-        x_diff_cpu = x_diff.to("cpu")
-        z_diff_cpu = z_diff.to("cpu")
-
-        trainX, trainY = self._format_for_model(x_diff_cpu, z_diff_cpu)
+        trainX, trainY, device_orig = self._build_batch_from_frames(
+            frames_xz, batch_size=batch_size, verbose=verbose
+        )
 
         # 将最终结果移回原设备（如果需要）
         if device_orig.type != "cpu" and not keep_on_cpu:
@@ -359,42 +506,200 @@ class CircuitDataGenerator:
 
         return {"trainX": trainX, "trainY": trainY}
 
+    def _build_batch_from_frames(
+        self,
+        frames_xz: torch.Tensor,
+        *,
+        batch_size: int,
+        verbose: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.device]:
+        if self._has_frame_predecoder_semantics:
+            D = frames_xz.shape[1] // 2
+            idx_data = (
+                torch.arange(self.n_rounds, device=self.device)[:, None] * self.nq +
+                self.data_qubits[None, :]
+            ).reshape(-1)
+            x_cum = frames_xz[:, :D].index_select(1, idx_data).reshape(
+                batch_size, self.n_rounds, -1
+            )
+            z_cum = frames_xz[:, D:].index_select(1, idx_data).reshape(
+                batch_size, self.n_rounds, -1
+            )
+            meas_old = measure_from_stacked_frames(
+                frames_xz, self.meas_qubits, self.meas_bases, nq=self.nq
+            )
+            meas_new = (
+                timelike_syndromes(frames_xz, self.A, meas_old)
+                if self.A is not None else meas_old.clone()
+            )
+
+            if self.timelike_he:
+                num_x = int(self.xcheck_qubits.numel())
+                s1s2x = meas_new[:, :, :num_x]
+                s1s2z = meas_new[:, :, num_x:]
+                mx = meas_old[:, :, :num_x]
+                mz = meas_old[:, :, num_x:]
+                mxp = torch.cat([torch.zeros_like(mx[:, :1, :]), mx], dim=1)
+                mzp = torch.cat([torch.zeros_like(mz[:, :1, :]), mz], dim=1)
+                trainX_x = mxp[:, :-1, :] ^ mxp[:, 1:, :]
+                trainX_z = mzp[:, :-1, :] ^ mzp[:, 1:, :]
+                z_diff, x_diff, s1s2x, s1s2z = apply_weight1_timelike_homological_equivalence_torch(
+                    z_cum,
+                    x_cum,
+                    s1s2x,
+                    s1s2z,
+                    self.parity_Z,
+                    self.parity_X,
+                    self.distance,
+                    self.num_he_cycles,
+                    self.max_passes_w1,
+                    self.basis,
+                    True,
+                    trainX_x=trainX_x,
+                    trainX_z=trainX_z,
+                    cache_Z_spacelike=self.cache_Z_sp,
+                    cache_X_spacelike=self.cache_X_sp,
+                    use_compile=self.use_compile,
+                    compile_chunk_size=self.compile_chunk_size,
+                    compute_dtype=self.compute_dtype,
+                    use_weight2=self.use_weight2,
+                    max_passes_w2=self.max_passes_w2,
+                    cache_Z_w2=self.cache_Z_w2,
+                    cache_X_w2=self.cache_X_w2,
+                    use_coset_search=self.use_coset_search,
+                    coset_max_generators=self.coset_max_generators,
+                    use_dense_overlap=self.use_dense_overlap,
+                    use_parallel_spacelike=self.use_parallel_spacelike,
+                )
+                meas_new = torch.cat([s1s2x, s1s2z], dim=2)
+            else:
+                xpad = torch.cat([torch.zeros_like(x_cum[:, :1, :]), x_cum], dim=1)
+                zpad = torch.cat([torch.zeros_like(z_cum[:, :1, :]), z_cum], dim=1)
+                x_diff = xpad[:, :-1, :] ^ xpad[:, 1:, :]
+                z_diff = zpad[:, :-1, :] ^ zpad[:, 1:, :]
+
+            device_orig = x_cum.device
+            trainX, trainY = self._format_for_model(
+                x_diff.to("cpu"),
+                z_diff.to("cpu"),
+                meas_old.to("cpu"),
+                meas_new.to("cpu"),
+            )
+        else:
+            if verbose and not self._fallback_warning_emitted:
+                print(
+                    "[CircuitDataGenerator] Warning: DEM source does not match "
+                    "Ising frame_predecoder semantics; using approximate fallback formatting."
+                )
+                self._fallback_warning_emitted = True
+
+            D = frames_xz.shape[1] // 2
+            nq = max(D // self.n_rounds, 1)
+            R = self.n_rounds
+            DD = self.distance
+            n_data = min(DD * DD, nq)
+            data_idx = (
+                torch.arange(R, device=self.device)[:, None] * nq
+                + torch.arange(n_data, device=self.device)[None, :]
+            ).reshape(-1)
+
+            x_cum = frames_xz[:, :D].index_select(1, data_idx).reshape(batch_size, R, n_data)
+            z_cum = frames_xz[:, D:].index_select(1, data_idx).reshape(batch_size, R, n_data)
+
+            if n_data < DD * DD:
+                pad = DD * DD - n_data
+                x_cum = torch.nn.functional.pad(x_cum, (0, pad))
+                z_cum = torch.nn.functional.pad(z_cum, (0, pad))
+
+            xpad = torch.cat([torch.zeros_like(x_cum[:, :1, :]), x_cum], dim=1)
+            zpad = torch.cat([torch.zeros_like(z_cum[:, :1, :]), z_cum], dim=1)
+            x_diff = xpad[:, :-1, :] ^ xpad[:, 1:, :]
+            z_diff = zpad[:, :-1, :] ^ zpad[:, 1:, :]
+
+            device_orig = x_diff.device
+            trainX, trainY = self._format_for_model_legacy(x_diff.to("cpu"), z_diff.to("cpu"))
+
+        return trainX, trainY, device_orig
+
     def _format_for_model(
-        self, x_diff: torch.Tensor, z_diff: torch.Tensor
+        self,
+        x_diff: torch.Tensor,
+        z_diff: torch.Tensor,
+        meas_old: torch.Tensor,
+        meas_new: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Ising-Decoding 的 _format_for_model 逻辑
-
-        trainX: (B, 4, R, D, D) = [x_syn_grid, z_syn_grid, x_pres, z_pres]
-        trainY: (B, 4, R, D, D) = [z_err, x_err, s1x_grid, s1z_grid]
-
-        其中:
-        - x/z_syn_grid: 差分错误映射到 D×D 网格（stabilizer 空间）
-        - x/z_pres: 归一化权重映射（presence 通道）
-        - x/z_err: 差分错误 reshape 到网格
-        - s1x/s1z: syndrome 占位（无 HE 时同 x/z_err）
-
-        Args:
-            x_diff: (B, R, D²) X 差分
-            z_diff: (B, R, D²) Z 差分
-        """
+        """Faithful Ising-style formatting for frame_predecoder samples."""
         B, R, D2 = x_diff.shape
         D = self.distance
+        num_x = int(self.xcheck_qubits.numel())
 
-        # 获取输入张量的设备（确保与权重映射一致）
-        device = x_diff.device
+        x_raw = meas_old[:, :, :num_x]
+        z_raw = meas_old[:, :, num_x:]
+        s1x = meas_new[:, :, :num_x]
+        s1z = meas_new[:, :, num_x:]
 
-        # 差分 reshape 到 D×D 网格
+        xp = torch.cat([torch.zeros_like(x_raw[:, :1, :]), x_raw], dim=1)
+        zp = torch.cat([torch.zeros_like(z_raw[:, :1, :]), z_raw], dim=1)
+        x_syn = (xp[:, :-1, :] ^ xp[:, 1:, :]).transpose(1, 2)
+        z_syn = (zp[:, :-1, :] ^ zp[:, 1:, :]).transpose(1, 2)
+        s1x = s1x.transpose(1, 2)
+        s1z = s1z.transpose(1, 2)
+
+        x_syn_g = (
+            reshape_Xstabilizers_to_grid_vectorized(x_syn, D, rotation=self.code_rotation)
+            .reshape(B, D, D, R).permute(0, 3, 1, 2).contiguous()
+        )
+        z_syn_g = (
+            reshape_Zstabilizers_to_grid_vectorized(z_syn, D, rotation=self.code_rotation)
+            .reshape(B, D, D, R).permute(0, 3, 1, 2).contiguous()
+        )
+        s1x_g = (
+            reshape_Xstabilizers_to_grid_vectorized(s1x, D, rotation=self.code_rotation)
+            .reshape(B, D, D, R).permute(0, 3, 1, 2).contiguous()
+        )
+        s1z_g = (
+            reshape_Zstabilizers_to_grid_vectorized(s1z, D, rotation=self.code_rotation)
+            .reshape(B, D, D, R).permute(0, 3, 1, 2).contiguous()
+        )
+
         x_err = x_diff.reshape(B, R, D, D)
         z_err = z_diff.reshape(B, R, D, D)
-        # 注意：x_diff 来自 X-frame 差分，直接 reshape 即可
+        x_pres = self.w_mapXgrid.to(x_diff.device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
+        z_pres = self.w_mapZgrid.to(x_diff.device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
 
-        # 权重映射（presence 通道）- 移到与输入相同的设备
-        w_mapX = self.w_mapXgrid.to(device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
-        w_mapZ = self.w_mapZgrid.to(device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
-        x_pres = w_mapX
-        z_pres = w_mapZ
+        if self.basis == "X":
+            z_pres[:, 0] = 0
+            z_syn_g[:, 0] = 0
+            z_pres[:, -1] = 0
+            z_syn_g[:, -1] = 0
+        else:
+            x_pres[:, 0] = 0
+            x_syn_g[:, 0] = 0
+            x_pres[:, -1] = 0
+            x_syn_g[:, -1] = 0
 
-        # basis 掩码（与 Ising-Decoding 一致）
+        trainX = torch.stack(
+            [x_syn_g.float(), z_syn_g.float(), x_pres.float(), z_pres.float()], dim=1
+        ).contiguous()
+        trainY = torch.stack(
+            [z_err.float(), x_err.float(), s1x_g.float(), s1z_g.float()], dim=1
+        ).contiguous()
+
+        return trainX, trainY
+
+    def _format_for_model_legacy(
+        self, x_diff: torch.Tensor, z_diff: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Approximate fallback for legacy DEM inputs without frame_predecoder semantics."""
+        B, R, D2 = x_diff.shape
+        D = self.distance
+        device = x_diff.device
+
+        x_err = x_diff.reshape(B, R, D, D)
+        z_err = z_diff.reshape(B, R, D, D)
+        x_pres = self.w_mapXgrid.to(device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
+        z_pres = self.w_mapZgrid.to(device).unsqueeze(0).unsqueeze(0).expand(B, R, D, D).clone()
+
         if self.basis == "X":
             z_pres[:, 0] = 0
             z_pres[:, -1] = 0
@@ -402,16 +707,10 @@ class CircuitDataGenerator:
             x_pres[:, 0] = 0
             x_pres[:, -1] = 0
 
-        # trainX: [x_syn, z_syn, x_pres, z_pres]
-        # 简化版: x_syn = x_err（差分即 syndrome 近似）
         trainX = torch.stack(
             [x_err.float(), z_err.float(), x_pres.float(), z_pres.float()], dim=1
         ).contiguous()
-
-        # trainY: [z_err, x_err, s1x, s1z]
-        # 与 Ising-Decoding 一致：z_err 和 x_err 交换位置，s1x/s1z 用 x/z_err 近似
         trainY = torch.stack(
             [z_err.float(), x_err.float(), x_err.float(), z_err.float()], dim=1
         ).contiguous()
-
         return trainX, trainY

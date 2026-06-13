@@ -319,11 +319,18 @@ class Trainer:
         return final_report
 
     def _evaluate(self, val_loader: DataLoader, criterion: nn.Module) -> tuple[float, float]:
+        """评估模型在验证集上的 loss 和 accuracy。
+
+        loss: BCEWithLogitsLoss(reduction='mean') 已对 batch 内所有元素取平均。
+              累积 loss.item() * B_i 后除以 total_samples 得到 per-sample 平均 loss，
+              与训练阶段的 epoch_loss（running_loss / seen）一致。
+        accuracy: 正确预测的比例（per-element）。
+        """
         self.model.eval()
         total_loss = 0.0
-        total_correct = 0.0
-        total = 0
-        sample_channels = None
+        total_correct = 0
+        total_elements = 0
+        total_samples = 0
 
         with torch.no_grad():
             for x, y in val_loader:
@@ -332,14 +339,15 @@ class Trainer:
                 logits = self.model(x)
                 loss = criterion(logits, y)
                 total_loss += float(loss.item()) * x.size(0)
+                total_samples += x.size(0)
 
                 preds = (torch.sigmoid(logits) > 0.5).float()
-                total_correct += (preds == y).float().sum().item()
-                total += y.numel()
-                sample_channels = y.shape[1] if y.ndim >= 2 else 1
+                total_correct += int((preds == y).sum().item())
+                total_elements += y.numel()
 
-        denom = max(total // max(sample_channels or 1, 1), 1)
-        return total_loss / denom, total_correct / max(total, 1)
+        avg_loss = total_loss / max(total_samples, 1)
+        avg_acc = total_correct / max(total_elements, 1)
+        return avg_loss, avg_acc
 
     @staticmethod
     def _format_time(seconds: float) -> str:

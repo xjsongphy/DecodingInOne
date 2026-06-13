@@ -188,7 +188,6 @@ def _get_surface_code_for_rotation(distance, rotation):
     first_bulk = rotation[0]
     rotated = rotation[1]
     code = SurfaceCode(distance, rotation=rotation)
-    hx = torch.tensor(code._x_connections_as_matrix(distance), dtype=torch.int32) if hasattr(code, '_x_connections_as_matrix') else None
     # 直接用 code 的内部数据构建 hx / hz
     n_data = distance ** 2
     xcheck = code.get_check_qubits('X')
